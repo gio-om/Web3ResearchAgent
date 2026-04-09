@@ -74,11 +74,8 @@ async def _call_raw_httpx(
     prompt: str,
     max_tokens: int,
 ) -> str:
-    """
-    Call Anthropic-compatible API via raw httpx (no SDK).
-    Works with proxies like orcai.cc that block SDK-specific headers.
-    """
-    url = base_url.rstrip("/") + "/messages"
+    """Call Anthropic-compatible API via raw httpx (no SDK)."""
+    url = base_url.rstrip("/") + "/v1/messages"
     headers = {
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
@@ -100,24 +97,93 @@ async def _call_raw_httpx(
     return data["content"][0]["text"]
 
 
+async def _call_openai_httpx(
+    base_url: str,
+    api_key: str,
+    model: str,
+    system: str,
+    prompt: str,
+    max_tokens: int,
+) -> str:
+    """
+    Call OpenAI-compatible Chat Completions API via raw httpx.
+    Supports both regular and streaming responses (SSE).
+    For reasoning/codex models that return content via reasoning_content chunks.
+    """
+    url = base_url.rstrip("/") + "/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "content-type": "application/json",
+    }
+    body = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "stream": True,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    content_parts: list[str] = []
+    reasoning_parts: list[str] = []
+
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async with client.stream("POST", url, headers=headers, json=body) as r:
+            if r.status_code == 429:
+                raise LLMError("rate_limit")
+            if r.status_code >= 400:
+                body_text = await r.aread()
+                raise LLMError(f"OpenAI API error {r.status_code}: {body_text[:500]}")
+
+            async for line in r.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                chunk_str = line[5:].strip()
+                if chunk_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(chunk_str)
+                except json.JSONDecodeError:
+                    continue
+                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                if delta.get("content"):
+                    content_parts.append(delta["content"])
+                if delta.get("reasoning_content"):
+                    reasoning_parts.append(delta["reasoning_content"])
+
+    # Prefer standard content; fall back to reasoning_content (codex/o-series models)
+    result = "".join(content_parts) or "".join(reasoning_parts)
+    if not result:
+        raise LLMError("OpenAI streaming returned no content")
+    return result
+
+
 class LLMService:
     """
-    Async wrapper around Anthropic Claude API (or compatible proxy).
-    Uses raw httpx when ANTHROPIC_BASE_URL is set; official SDK otherwise.
+    Async wrapper around Claude (Anthropic) or OpenAI-compatible API.
+    Provider is selected via LLM_PROVIDER env var ("claude" or "openai").
     """
 
     def __init__(self) -> None:
-        self._model = settings.CLAUDE_MODEL
-        self._api_key = settings.ANTHROPIC_API_KEY
-        self._base_url = settings.ANTHROPIC_BASE_URL or ""
-        self._use_raw = bool(self._base_url)  # raw httpx for proxy endpoints
+        self._provider = settings.LLM_PROVIDER.lower()
 
-        if not self._use_raw:
-            from anthropic import AsyncAnthropic
-            self._sdk_client = AsyncAnthropic(
-                api_key=self._api_key,
-                http_client=httpx.AsyncClient(timeout=_TIMEOUT),
-            )
+        if self._provider == "openai":
+            self._model = settings.OPENAI_MODEL
+            self._api_key = settings.OPENAI_API_KEY
+            self._base_url = settings.OPENAI_BASE_URL or "https://api.openai.com"
+        else:  # claude (default)
+            self._model = settings.CLAUDE_MODEL
+            self._api_key = settings.ANTHROPIC_API_KEY
+            self._base_url = settings.ANTHROPIC_BASE_URL or ""
+            self._use_sdk = not bool(self._base_url)
+            if self._use_sdk:
+                from anthropic import AsyncAnthropic
+                self._sdk_client = AsyncAnthropic(
+                    api_key=self._api_key,
+                    http_client=httpx.AsyncClient(timeout=_TIMEOUT),
+                )
+
+        log.info("llm.init", provider=self._provider, model=self._model)
 
     # ------------------------------------------------------------------
     # Core private call
@@ -130,13 +196,29 @@ class LLMService:
         system: str = SYSTEM_JSON,
         max_tokens: int = MAX_TOKENS,
     ) -> str:
-        """
-        Send a message to Claude and return the text response.
-        Retries on transient errors. Raises LLMError on permanent failure.
-        """
+        """Send a message to the configured LLM and return the text response."""
+        provider_label = self._provider
+
         for attempt in range(MAX_RETRIES):
             try:
-                if self._use_raw:
+                if self._provider == "openai":
+                    return await _call_openai_httpx(
+                        base_url=self._base_url,
+                        api_key=self._api_key,
+                        model=self._model,
+                        system=system,
+                        prompt=prompt,
+                        max_tokens=max_tokens,
+                    )
+                elif self._use_sdk:
+                    response = await self._sdk_client.messages.create(
+                        model=self._model,
+                        max_tokens=max_tokens,
+                        system=system,
+                        messages=[{"role": "user", "content": prompt}],
+                    )
+                    return response.content[0].text
+                else:
                     return await _call_raw_httpx(
                         base_url=self._base_url,
                         api_key=self._api_key,
@@ -145,54 +227,44 @@ class LLMService:
                         prompt=prompt,
                         max_tokens=max_tokens,
                     )
-                else:
-                    from anthropic import APIConnectionError, APIStatusError, RateLimitError
-                    response = await self._sdk_client.messages.create(
-                        model=self._model,
-                        max_tokens=max_tokens,
-                        system=system,
-                        messages=[{"role": "user", "content": prompt}],
-                    )
-                    return response.content[0].text
 
             except LLMError as e:
                 if "rate_limit" in str(e):
                     delay = BASE_RETRY_DELAY * (2 ** attempt)
-                    log.warning("llm.rate_limit", attempt=attempt + 1, retry_in=delay)
+                    log.warning("llm.rate_limit", provider=provider_label, attempt=attempt + 1, retry_in=delay)
                     await asyncio.sleep(delay)
                     continue
                 raise
             except httpx.TimeoutException as e:
                 delay = BASE_RETRY_DELAY * (2 ** attempt)
-                log.warning("llm.timeout", attempt=attempt + 1, retry_in=delay)
+                log.warning("llm.timeout", provider=provider_label, attempt=attempt + 1, retry_in=delay)
                 if attempt == MAX_RETRIES - 1:
-                    raise LLMError(f"Claude timed out after {MAX_RETRIES} attempts") from e
+                    raise LLMError(f"LLM timed out after {MAX_RETRIES} attempts") from e
                 await asyncio.sleep(delay)
             except httpx.HTTPError as e:
                 delay = BASE_RETRY_DELAY * (2 ** attempt)
-                log.warning("llm.connection_error", attempt=attempt + 1, error=str(e), retry_in=delay)
+                log.warning("llm.connection_error", provider=provider_label, attempt=attempt + 1, error=str(e))
                 if attempt == MAX_RETRIES - 1:
-                    raise LLMError(f"Claude connection failed: {e}") from e
+                    raise LLMError(f"LLM connection failed: {e}") from e
                 await asyncio.sleep(delay)
             except Exception as e:
-                # For SDK path: catch RateLimitError, APIConnectionError, APIStatusError
                 name = type(e).__name__
                 if "RateLimit" in name:
                     delay = BASE_RETRY_DELAY * (2 ** attempt)
-                    log.warning("llm.rate_limit", attempt=attempt + 1, retry_in=delay)
+                    log.warning("llm.rate_limit", provider=provider_label, attempt=attempt + 1, retry_in=delay)
                     await asyncio.sleep(delay)
                     continue
                 if "Connection" in name:
                     delay = BASE_RETRY_DELAY * (2 ** attempt)
-                    log.warning("llm.connection_error", attempt=attempt + 1, error=str(e))
+                    log.warning("llm.connection_error", provider=provider_label, attempt=attempt + 1, error=str(e))
                     if attempt == MAX_RETRIES - 1:
-                        raise LLMError(f"Claude connection failed: {e}") from e
+                        raise LLMError(f"LLM connection failed: {e}") from e
                     await asyncio.sleep(delay)
                     continue
-                log.error("llm.unexpected_error", error=str(e), type=name)
-                raise LLMError(f"Claude error: {e}") from e
+                log.error("llm.unexpected_error", provider=provider_label, error=str(e), type=name)
+                raise LLMError(f"LLM error: {e}") from e
 
-        raise LLMError(f"Claude call failed after {MAX_RETRIES} attempts")
+        raise LLMError(f"LLM call failed after {MAX_RETRIES} attempts")
 
     # ------------------------------------------------------------------
     # Public methods

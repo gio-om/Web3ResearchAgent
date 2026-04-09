@@ -1,14 +1,48 @@
 # PROJECT_STATE.md — Web3 Due Diligence Bot
 
 > Документ для восстановления контекста в новой сессии.
-> Актуален на: 2026-04-05
-> Статус: **Фазы 1–6 завершены. CryptoRank API работает. Mini-app работает.**
+> Актуален на: 2026-04-09
+> Статус: **Фазы 1–6 завершены. CryptoRank API работает. Mini-app работает. Поддержка OpenAI-провайдера добавлена.**
 
 ---
 
 ## Текущий статус
 
-Всё работает. Последняя исправленная проблема — белый экран mini-app при открытии отчёта в режиме «Документация / токеномика».
+Всё работает. Добавлен выбор LLM-провайдера (Claude / OpenAI) через `.env`. OpenAI-путь протестирован с моделью `gpt-5.1-codex` через orcai.cc.
+
+---
+
+## Сессия 2026-04-09 — выбор LLM-провайдера (Claude / OpenAI)
+
+### Что сделано
+
+Добавлена поддержка OpenAI-совместимого API в качестве альтернативы Claude. Выбор провайдера — через `LLM_PROVIDER` в `.env`.
+
+#### Изменённые файлы
+
+| Файл | Изменение |
+|---|---|
+| `bot/src/config.py` | `LLM_PROVIDER: str = "claude"`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`; `ANTHROPIC_API_KEY` теперь опциональный |
+| `bot/src/services/llm.py` | `_call_openai_httpx()` — SSE-стриминг; `LLMService.__init__` ветвится по провайдеру; fallback `reasoning_content` для codex/o-series моделей |
+| `.env` | `LLM_PROVIDER`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` |
+| `.env.example` | Аналогично `.env` |
+
+#### Архитектура LLM-маршрутизации
+
+```
+LLM_PROVIDER=claude  →  ANTHROPIC_BASE_URL задан?
+                           да  → raw httpx POST /v1/messages (orcai.cc proxy)
+                           нет → официальный anthropic SDK
+
+LLM_PROVIDER=openai  →  SSE-стриминг POST /v1/chat/completions
+                           собирает delta.content (стандартные модели)
+                           или delta.reasoning_content (codex/o-series)
+```
+
+#### Особенности OpenAI-пути
+
+- Модель `gpt-5.1-codex` на orcai.cc возвращает ответ только через `reasoning_content` в SSE-чанках (`content: null` в non-streaming). Реализован SSE-парсер, который собирает оба поля и предпочитает `content`.
+- `stream: True` — принудительно, т.к. orcai.cc игнорирует `stream: false` для codex-модели.
 
 ---
 
@@ -246,7 +280,7 @@ docker compose exec redis redis-cli FLUSHDB
 Telegram-бот + Mini App для автоматического анализа криптостартапов.
 Пользователь отправляет название проекта → мультиагентный AI-пайплайн (~30–60 с) → карточка с оценкой 0–100 и флагами рисков.
 
-**Стек:** Python 3.11, aiogram 3.x, LangGraph, Anthropic Claude API (через orcai.cc proxy), PostgreSQL 16 + asyncpg, Redis 7, SQLAlchemy 2.0 async, Alembic, Pydantic v2, FastAPI, Docker Compose.
+**Стек:** Python 3.11, aiogram 3.x, LangGraph, Claude / OpenAI API (через orcai.cc proxy или напрямую), PostgreSQL 16 + asyncpg, Redis 7, SQLAlchemy 2.0 async, Alembic, Pydantic v2, FastAPI, Docker Compose.
 Mini App: React 18 + Vite 5 + TypeScript + Tailwind CSS v4 + recharts.
 
 **Корень проекта:** `web3-dd-bot/` (внутри рабочей папки `ResearchAgent/`)
@@ -293,8 +327,10 @@ ErrorBoundary оборачивает весь роутер — render-ошибк
 | Файл | Что изменено |
 |---|---|
 | `bot/src/services/cryptorank.py` | **Полная перепись** — Bearer API вместо HTML scraping |
-| `bot/src/config.py` | Добавлен `CRYPTORANK_BEARER: str = ""` |
-| `.env` | Добавлен `CRYPTORANK_BEARER=<token>` |
+| `bot/src/config.py` | `CRYPTORANK_BEARER`; `LLM_PROVIDER`, `OPENAI_*` (сессия 2026-04-09) |
+| `.env` | `CRYPTORANK_BEARER`; `LLM_PROVIDER`, `OPENAI_*` (сессия 2026-04-09) |
+| `.env.example` | `LLM_PROVIDER`, `OPENAI_*` (сессия 2026-04-09) |
+| `bot/src/services/llm.py` | OpenAI SSE-провайдер, routing по `LLM_PROVIDER` (сессия 2026-04-09) |
 | `bot/src/agents/analyst.py` | `_build_tokenomics`, `_build_funding_rounds`, `_build_investor_list`; fix investor string format |
 | `bot/src/bot/handlers/analyze.py` | `docs` режим включает `aggregator`; `_fmt_usd()` умное форматирование |
 | `mini-app/src/App.tsx` | ErrorBoundary; `?? []` для массивов; optional chaining для `data_sources` |

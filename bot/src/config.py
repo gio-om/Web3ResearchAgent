@@ -6,11 +6,19 @@ class Settings(BaseSettings):
     BOT_TOKEN: str
     WEBAPP_URL: str = "https://your-domain.com"
 
-    # LLM
-    ANTHROPIC_API_KEY: str
+    # LLM provider: "claude" or "openai"
+    LLM_PROVIDER: str = "claude"
+
+    # Claude / Anthropic
+    ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_BASE_URL: str = ""
     ANTHROPIC_PROXY_URL: str = ""
     CLAUDE_MODEL: str = "claude-sonnet-4-20250514"
+
+    # OpenAI (or OpenAI-compatible proxy, e.g. orcai.cc)
+    OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str = "https://api.openai.com"
+    OPENAI_MODEL: str = "gpt-4o"
 
     # External APIs
     CRYPTORANK_API_KEY: str = ""
