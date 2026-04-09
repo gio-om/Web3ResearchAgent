@@ -7,6 +7,7 @@ Flow:
 3. User picks mode → bot sends progress message → runs pipeline
 4. On completion, sends the result card with Mini App button
 """
+import html
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -237,22 +238,23 @@ async def _run_analysis(message: Message, query: str, mode: str = "full", user_i
         final_state = await graph.ainvoke(state.model_dump())
 
         if final_state.get("status") == "failed":
+            errors = '; '.join(html.escape(e) for e in final_state.get('errors', ['Неизвестная ошибка']))
             await progress_msg.edit_text(
-                f"❌ Анализ проекта <b>{query}</b> не удался.\n"
-                f"Ошибки: {'; '.join(final_state.get('errors', ['Неизвестная ошибка']))}"
+                f"❌ Анализ проекта <b>{html.escape(query)}</b> не удался.\n"
+                f"Ошибки: {errors}"
             )
             return
 
         report = final_state.get("report", {})
-        project_name = final_state.get("project_name", query)
+        project_name = html.escape(final_state.get("project_name", query))
         score = report.get("overall_score", 0)
-        recommendation = report.get("recommendation", "DYOR")
+        recommendation = html.escape(report.get("recommendation", "DYOR"))
         risk_flags = report.get("risk_flags", [])
 
         flag_lines = []
         for flag in risk_flags[:5]:
             icon = {"red": "🔴", "yellow": "🟡", "green": "🟢"}.get(flag.get("type", ""), "⚪")
-            flag_lines.append(f"{icon} {flag.get('message', '')}")
+            flag_lines.append(f"{icon} {html.escape(flag.get('message', ''))}")
         flags_text = "\n".join(flag_lines) if flag_lines else "Флагов не найдено"
 
         coingecko_summary = report.get("coingecko_summary", {}) or {}
@@ -261,10 +263,10 @@ async def _run_analysis(message: Message, query: str, mode: str = "full", user_i
         fdv_line = f"FDV: {_fmt_usd(fdv)} | MCap: {_fmt_usd(mcap)}\n" if fdv and mcap else ""
 
         investors = report.get("investors", [])
-        top_investors = [inv.get("name", "") for inv in investors[:3] if inv.get("name")]
+        top_investors = [html.escape(inv.get("name", "")) for inv in investors[:3] if inv.get("name")]
         investors_line = f"Инвесторы: {', '.join(top_investors)}\n" if top_investors else ""
 
-        sources = ", ".join(report.get("data_sources", [])[:3])
+        sources = html.escape(", ".join(report.get("data_sources", [])[:3]))
 
         result_text = RESULT_TEMPLATE.format(
             project_name=project_name,
@@ -286,5 +288,5 @@ async def _run_analysis(message: Message, query: str, mode: str = "full", user_i
 
     except Exception as e:
         await progress_msg.edit_text(
-            f"❌ Произошла ошибка при анализе <b>{query}</b>:\n<code>{e}</code>"
+            f"❌ Произошла ошибка при анализе <b>{html.escape(query)}</b>:\n<code>{html.escape(str(e))}</code>"
         )
