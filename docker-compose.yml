@@ -1,5 +1,16 @@
 version: "3.9"
 services:
+  omniroute:
+    image: diegosouzapw/omniroute:latest
+    restart: unless-stopped
+    stop_grace_period: 40s
+    ports:
+      - "20128:20128"
+    environment:
+      INITIAL_PASSWORD: "123456"
+    volumes:
+      - omniroute-data:/app/data
+
   bot:
     build: ./bot
     env_file: .env
@@ -55,3 +66,4 @@ services:
 
 volumes:
   pgdata:
+  omniroute-data:

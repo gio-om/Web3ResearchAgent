@@ -6,24 +6,15 @@ class Settings(BaseSettings):
     BOT_TOKEN: str
     WEBAPP_URL: str = "https://your-domain.com"
 
-    # LLM provider: "claude" or "openai"
-    LLM_PROVIDER: str = "claude"
-
-    # Claude / Anthropic
-    ANTHROPIC_API_KEY: str = ""
-    ANTHROPIC_BASE_URL: str = ""
-    ANTHROPIC_PROXY_URL: str = ""
-    CLAUDE_MODEL: str = "claude-sonnet-4-20250514"
-
-    # OpenAI (or OpenAI-compatible proxy, e.g. orcai.cc)
-    OPENAI_API_KEY: str = ""
-    OPENAI_BASE_URL: str = "https://api.openai.com"
-    OPENAI_MODEL: str = "gpt-4o"
+    # OmniRoute — единственный LLM шлюз
+    OMNIROUTE_API_KEY: str
+    OMNIROUTE_BASE_URL: str = "http://omniroute:20128/v1"
+    OMNIROUTE_MODEL: str = "glm/glm-5.1"
 
     # External APIs
     CRYPTORANK_API_KEY: str = ""
     CRYPTORANK_COOKIE: str = ""
-    CRYPTORANK_BEARER: str = ""   # Bearer token from DevTools → Network → Authorization header
+    CRYPTORANK_BEARER: str = ""
     TWITTER_BEARER_TOKEN: str = ""
 
     # Database
