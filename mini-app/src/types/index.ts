@@ -42,12 +42,19 @@ export interface TeamMember {
   previous_projects: string[];
 }
 
-export interface SocialMetrics {
-  twitter_followers: number | null;
-  twitter_engagement_rate: number | null;
-  discord_members: number | null;
-  telegram_members: number | null;
-  sentiment_score: number | null;
+export interface SocialData {
+  handle?: string;
+  followers_count?: number;
+  following_count?: number;
+  engagement_rate?: number;
+  tweet_count?: number;
+  sentiment_score?: number;
+  key_concerns?: string[];
+  positive_signals?: string[];
+  kol_mentions?: string[];
+  bot_activity_signals?: string[];
+  overall_assessment?: string;
+  error?: string;
 }
 
 export interface TokenomicsData {
@@ -68,12 +75,13 @@ export interface Report {
   funding_rounds: FundingRound[];
   investors: InvestorInfo[];
   team: TeamMember[];
-  social: SocialMetrics;
+  social?: SocialData;
   risk_flags: RiskFlag[];
   strengths: string[];
   weaknesses: string[];
   summary: string;
   data_sources: string[];
+  project_links?: Record<string, string>;
   id: number;
 }
 

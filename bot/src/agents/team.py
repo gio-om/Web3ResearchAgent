@@ -29,6 +29,11 @@ async def team_node(state: dict) -> dict:
     team_data: dict = {"members": [], "flags": []}
     errors = list(state.get("errors", []))
 
+    # Resolve project URLs if not already populated (team mode runs without aggregator)
+    if not project_urls.get("website") and not project_urls.get("twitter"):
+        from src.agents.resolve_urls import resolve_project_urls
+        project_urls = await resolve_project_urls(project_name, project_urls)
+
     try:
         from src.services.scraper import DocumentationScraper
         from src.services.llm import LLMService
@@ -139,5 +144,6 @@ async def team_node(state: dict) -> dict:
         **state,
         "team_data": team_data,
         "team_done": True,
+        "project_urls": project_urls,
         "errors": errors,
     }

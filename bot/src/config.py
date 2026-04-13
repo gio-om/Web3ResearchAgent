@@ -15,7 +15,11 @@ class Settings(BaseSettings):
     CRYPTORANK_API_KEY: str = ""
     CRYPTORANK_COOKIE: str = ""
     CRYPTORANK_BEARER: str = ""
+    # Twitter/X — both values are captured from browser DevTools:
+    #   TWITTER_BEARER_TOKEN : Authorization header value  (Network → Headers → Authorization)
+    #   TWITTER_AUTH_COOKIE  : raw Cookie header string    (Network → Headers → Cookie)
     TWITTER_BEARER_TOKEN: str = ""
+    TWITTER_AUTH_COOKIE: str = ""
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://web3dd:web3dd_secret@postgres:5432/web3dd"

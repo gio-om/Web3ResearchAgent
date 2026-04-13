@@ -1,120 +1,539 @@
 """
-Twitter / X API v2 client — STUB.
+Twitter/X scraper using Playwright + Bearer Token auth.
 
-The API requires a Bearer Token (free tier has very limited access;
-paid Basic/Pro tiers provide search/timeline endpoints).
+Auth (same pattern as CryptoRank):
+  - TWITTER_BEARER_TOKEN  — injected as "Authorization: Bearer …" header
+                            into every request Playwright makes to x.com / api.x.com
+  - TWITTER_AUTH_COOKIE   — raw Cookie header string from browser DevTools
+                            (e.g. "auth_token=abc123; ct0=xyz…"); injects
+                            cookies into the browser context for authenticated
+                            access to public timelines.
 
-This stub returns empty data so the pipeline degrades gracefully.
+Both values are optional — without them the scraper still works for fully
+public profiles (crypto projects are almost always public).
 
-TODO: implement when TWITTER_BEARER_TOKEN is available.
-Endpoints to implement (all under https://api.twitter.com/2):
-  GET /users/by/username/{username}
-      params: user.fields=public_metrics,description,created_at
-      -> get_profile()
+Strategy:
+  1. find_project_account()  — try common handle patterns; navigate each
+                                candidate URL and check that the page resolves
+  2. get_profile()           — load x.com/{username}, parse header section
+  3. get_recent_tweets()     — scroll timeline, harvest tweet articles from DOM
+  4. search_mentions()       — load x.com/search?q={name}, harvest first page
 
-  GET /users/{id}/tweets
-      params: max_results, tweet.fields=public_metrics,created_at,text,
-              exclude=retweets,replies
-      -> get_recent_tweets()
-
-  GET /tweets/search/recent
-      params: query, max_results, tweet.fields=..., expansions=author_id
-      -> search_mentions()  and  find_project_account()
-
-All methods should:
-  - Use Authorization: Bearer {TWITTER_BEARER_TOKEN} header
-  - Cache responses in Redis via cache_get/cache_set (TTL 1800 s = 30 min)
-  - Retry on 429 with a longer backoff (Twitter rate windows are 15-min)
-  - Return empty dict/list (never raise) so callers can always proceed
+All methods:
+  - Cache responses in Redis (TTL 1800 s = 30 min)
+  - Return {} / [] on error — never raise
+  - Use headless Chromium via Playwright
 """
+from __future__ import annotations
+
+import asyncio
+import re
+from typing import Any
+
 import structlog
 
 from src.config import settings
+from src.services.cache import cache_get, cache_set
 
 log = structlog.get_logger()
 
+CACHE_TTL = 1800          # 30 min
+PAGE_TIMEOUT = 30_000     # ms — initial page load
+NAV_TIMEOUT = 20_000      # ms — subsequent navigations
+SCROLL_PAUSE = 1.8        # seconds between scrolls
+MAX_SCROLL_ROUNDS = 6     # how many times to scroll down the timeline
+
+X_BASE = "https://x.com"
+
+# data-testid selectors — X keeps these stable across redesigns
+SEL_TWEET_ARTICLE = 'article[data-testid="tweet"]'
+SEL_TWEET_TEXT = '[data-testid="tweetText"]'
+SEL_TIMESTAMP = "time[datetime]"
+SEL_USER_NAME = '[data-testid="UserName"]'
+SEL_USER_DESC = '[data-testid="UserDescription"]'
+
+
+# ---------------------------------------------------------------------------
+# Parsing helpers
+# ---------------------------------------------------------------------------
+
+def _parse_metric(text: str) -> int:
+    """'1.2K' → 1200, '2.5M' → 2_500_000, '123' → 123."""
+    text = text.strip().replace(",", "")
+    try:
+        if text.endswith("K"):
+            return int(float(text[:-1]) * 1_000)
+        if text.endswith("M"):
+            return int(float(text[:-1]) * 1_000_000)
+        return int(text)
+    except (ValueError, TypeError):
+        return 0
+
+
+def _extract_metric_from_aria(label: str, key: str) -> int:
+    """
+    X puts counts in aria-labels: "1,234 Likes" / "567 Reposts" / "89 Replies".
+    key = "like" | "repost" | "retweet" | "reply"
+    """
+    label_l = label.lower()
+    if key.lower() in label_l:
+        match = re.search(r"([\d,]+(?:\.\d+)?[KkMm]?)", label)
+        if match:
+            return _parse_metric(match.group(1))
+    return 0
+
+
+def _parse_cookie_string(raw: str) -> list[dict]:
+    """
+    Parse a raw "name=value; name2=value2" cookie string into a list of dicts
+    suitable for Playwright's context.add_cookies().
+    """
+    cookies = []
+    for part in raw.split(";"):
+        part = part.strip()
+        if "=" not in part:
+            continue
+        name, _, value = part.partition("=")
+        cookies.append({
+            "name": name.strip(),
+            "value": value.strip(),
+            "domain": ".x.com",
+            "path": "/",
+        })
+    return cookies
+
+
+def _handle_from_url(url: str) -> str | None:
+    """Extract 'LayerZero_Labs' from 'https://x.com/LayerZero_Labs' etc."""
+    url = url.rstrip("/")
+    parts = url.split("/")
+    candidate = parts[-1].lstrip("@") if parts else ""
+    # Skip known non-handle path segments
+    if candidate.lower() in ("twitter.com", "x.com", "search", ""):
+        return None
+    return candidate
+
+
+# ---------------------------------------------------------------------------
+# Low-level Playwright helpers
+# ---------------------------------------------------------------------------
+
+async def _launch_browser():
+    """Launch headless Chromium. Returns (playwright_ctx, browser)."""
+    from playwright.async_api import async_playwright  # lazy import
+    pw = await async_playwright().start()
+    browser = await pw.chromium.launch(
+        headless=True,
+        args=[
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+        ],
+    )
+    return pw, browser
+
+
+async def _new_page(browser, bearer: str, raw_cookie: str):
+    """
+    Create a browser context with:
+      - Bearer token injected into every request header
+      - Optional auth cookies for authenticated sessions
+    """
+    context = await browser.new_context(
+        viewport={"width": 1280, "height": 900},
+        user_agent=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        locale="en-US",
+    )
+
+    # Inject Bearer token into matching requests
+    if bearer:
+        async def _inject_bearer(route):
+            url = route.request.url
+            if any(h in url for h in ("x.com", "twitter.com", "twimg.com")):
+                headers = dict(route.request.headers)
+                headers["authorization"] = f"Bearer {bearer}"
+                await route.continue_(headers=headers)
+            else:
+                await route.continue_()
+
+        await context.route("**/*", _inject_bearer)
+
+    # Inject session cookies
+    if raw_cookie:
+        cookies = _parse_cookie_string(raw_cookie)
+        if cookies:
+            await context.add_cookies(cookies)
+
+    page = await context.new_page()
+    # Reduce bot-detection signals
+    await page.add_init_script(
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    )
+    return context, page
+
+
+async def _scroll_and_collect(page, selector: str, count: int) -> list[Any]:
+    """
+    Scroll the page MAX_SCROLL_ROUNDS times, collecting elements that match
+    `selector` until we have at least `count` items or run out of content.
+    Returns deduplicated list of element handles.
+    """
+    seen_ids: set[str] = set()
+    elements: list[Any] = []
+
+    for _ in range(MAX_SCROLL_ROUNDS):
+        articles = await page.query_selector_all(selector)
+        for el in articles:
+            el_id = await el.get_attribute("data-item-id") or str(await el.inner_html())[:80]
+            if el_id not in seen_ids:
+                seen_ids.add(el_id)
+                elements.append(el)
+        if len(elements) >= count:
+            break
+        await page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
+        await asyncio.sleep(SCROLL_PAUSE)
+
+    return elements[:count]
+
+
+# ---------------------------------------------------------------------------
+# Tweet parsing
+# ---------------------------------------------------------------------------
+
+async def _parse_tweet_article(article) -> dict | None:
+    """
+    Extract structured data from a single tweet <article> element.
+    Returns None if the element doesn't look like a real tweet.
+    """
+    try:
+        # --- text ---
+        text_el = await article.query_selector(SEL_TWEET_TEXT)
+        text = (await text_el.inner_text()).strip() if text_el else ""
+
+        # --- timestamp ---
+        time_el = await article.query_selector(SEL_TIMESTAMP)
+        created_at = ""
+        if time_el:
+            created_at = await time_el.get_attribute("datetime") or ""
+
+        # --- metrics via aria-label ---
+        like_count = retweet_count = reply_count = 0
+        for btn_testid in ("like", "retweet", "reply"):
+            btn = await article.query_selector(f'[data-testid="{btn_testid}"]')
+            if btn:
+                aria = await btn.get_attribute("aria-label") or ""
+                if not aria:
+                    # fallback: try inner text of nearest span
+                    span = await btn.query_selector("span")
+                    aria = (await span.inner_text()).strip() if span else ""
+                n = _parse_metric(aria.split()[0]) if aria else 0
+                if btn_testid == "like":
+                    like_count = n
+                elif btn_testid == "retweet":
+                    retweet_count = n
+                elif btn_testid == "reply":
+                    reply_count = n
+
+        # Skip if no text (ads, "show more" cards, etc.)
+        if not text:
+            return None
+
+        return {
+            "text": text,
+            "created_at": created_at,
+            "public_metrics": {
+                "like_count": like_count,
+                "retweet_count": retweet_count,
+                "reply_count": reply_count,
+            },
+        }
+    except Exception as e:
+        log.debug("twitter.parse_tweet_failed", error=str(e))
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Client
+# ---------------------------------------------------------------------------
 
 class TwitterClient:
-    """
-    Stub client. All methods log a warning and return empty data.
-    Replace method bodies one by one as API access is configured.
-    """
+    """Playwright-based scraper for public X (Twitter) profiles."""
 
     def __init__(self) -> None:
-        self._bearer_token = settings.TWITTER_BEARER_TOKEN
-        if not self._bearer_token:
-            log.warning("twitter.no_bearer_token", hint="Set TWITTER_BEARER_TOKEN in .env")
+        self._bearer = settings.TWITTER_BEARER_TOKEN.strip()
+        self._cookie = settings.TWITTER_AUTH_COOKIE.strip()
+        if not self._bearer and not self._cookie:
+            log.warning(
+                "twitter.no_credentials",
+                hint="Set TWITTER_BEARER_TOKEN and/or TWITTER_AUTH_COOKIE in .env",
+            )
 
     @property
     def is_configured(self) -> bool:
-        return bool(self._bearer_token)
+        return bool(self._bearer or self._cookie)
 
     # ------------------------------------------------------------------
-    # Stubs
+    # Public API  (same interface as the original stub)
     # ------------------------------------------------------------------
 
     async def find_project_account(self, project_name: str) -> str | None:
         """
-        Search for the project's official Twitter/X handle.
-
-        Expected return: username string (without @), e.g. "LayerZero_Labs"
-        or None if not found.
-
-        Implementation hint:
-          Search recent tweets from likely handles, pick the one with the
-          highest follower count and matching description.
+        Try common username patterns derived from the project name.
+        Returns the first handle whose x.com profile page loads successfully.
         """
-        log.info("twitter.stub.find_project_account", project_name=project_name)
-        return None  # TODO: implement
+        cache_key = f"tw:find:{project_name.lower()}"
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached or None
+
+        name_clean = project_name.strip()
+        candidates: list[str] = list(dict.fromkeys([
+            name_clean.replace(" ", ""),
+            name_clean.replace(" ", "_"),
+            name_clean.replace(" ", "-"),
+            name_clean.lower().replace(" ", ""),
+            name_clean.lower().replace(" ", "_"),
+        ]))
+
+        pw = browser = None
+        try:
+            pw, browser = await _launch_browser()
+            context, page = await _new_page(browser, self._bearer, self._cookie)
+            try:
+                for handle in candidates:
+                    url = f"{X_BASE}/{handle}"
+                    try:
+                        resp = await page.goto(url, timeout=NAV_TIMEOUT, wait_until="domcontentloaded")
+                        if resp and resp.ok:
+                            # Verify it's a real profile (has the UserName element)
+                            try:
+                                await page.wait_for_selector(SEL_USER_NAME, timeout=5_000)
+                                log.info("twitter.find_account.found", project=project_name, handle=handle)
+                                await cache_set(cache_key, handle, CACHE_TTL)
+                                return handle
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            finally:
+                await context.close()
+        except Exception as e:
+            log.warning("twitter.find_account.error", project=project_name, error=str(e))
+        finally:
+            if browser:
+                await browser.close()
+            if pw:
+                await pw.stop()
+
+        log.info("twitter.find_account.not_found", project=project_name)
+        await cache_set(cache_key, "", CACHE_TTL)
+        return None
 
     async def get_profile(self, username: str) -> dict:
         """
-        Fetch public profile data for a Twitter username.
+        Load x.com/{username} and scrape the profile header.
 
-        Expected return shape:
+        Returns:
         {
-          "id": "123456789",
-          "name": "LayerZero",
           "username": "LayerZero_Labs",
-          "description": "...",
-          "created_at": "2021-06-01T00:00:00.000Z",
+          "name": "LayerZero",
+          "description": "…",
           "public_metrics": {
             "followers_count": 250000,
             "following_count": 500,
-            "tweet_count": 1200,
-            "listed_count": 800
+            "tweet_count": 0      # X no longer shows this in the header
           }
         }
         """
-        log.info("twitter.stub.get_profile", username=username)
-        return {}  # TODO: implement
+        cache_key = f"tw:profile:{username.lower()}"
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        pw = browser = None
+        result: dict = {}
+        try:
+            pw, browser = await _launch_browser()
+            context, page = await _new_page(browser, self._bearer, self._cookie)
+            try:
+                await page.goto(
+                    f"{X_BASE}/{username}",
+                    timeout=PAGE_TIMEOUT,
+                    wait_until="domcontentloaded",
+                )
+                await page.wait_for_selector(SEL_USER_NAME, timeout=10_000)
+
+                # --- Display name & handle ---
+                name_el = await page.query_selector(SEL_USER_NAME)
+                display_name = ""
+                if name_el:
+                    spans = await name_el.query_selector_all("span")
+                    for sp in spans:
+                        t = (await sp.inner_text()).strip()
+                        if t and not t.startswith("@"):
+                            display_name = t
+                            break
+
+                # --- Bio ---
+                desc_el = await page.query_selector(SEL_USER_DESC)
+                description = (await desc_el.inner_text()).strip() if desc_el else ""
+
+                # --- Followers / Following ---
+                # X renders these as links: /username/followers and /username/following
+                followers = following = 0
+                for stat_href, stat_key in [
+                    (f"/{username}/followers", "followers"),
+                    (f"/{username}/verified_followers", "followers"),
+                    (f"/{username}/following", "following"),
+                ]:
+                    el = await page.query_selector(f'a[href="{stat_href}"]')
+                    if not el:
+                        continue
+                    text = (await el.inner_text()).strip()
+                    num = _parse_metric(text.split()[0]) if text else 0
+                    if stat_key == "followers" and not followers:
+                        followers = num
+                    elif stat_key == "following":
+                        following = num
+
+                result = {
+                    "username": username,
+                    "name": display_name,
+                    "description": description,
+                    "public_metrics": {
+                        "followers_count": followers,
+                        "following_count": following,
+                        "tweet_count": 0,
+                    },
+                }
+                log.info("twitter.get_profile.done", username=username, followers=followers)
+            finally:
+                await context.close()
+        except Exception as e:
+            log.warning("twitter.get_profile.error", username=username, error=str(e))
+        finally:
+            if browser:
+                await browser.close()
+            if pw:
+                await pw.stop()
+
+        if result:
+            await cache_set(cache_key, result, CACHE_TTL)
+        return result
 
     async def get_recent_tweets(self, username: str, count: int = 50) -> list[dict]:
         """
-        Get the most recent original tweets (excluding RTs and replies).
+        Scroll through x.com/{username} and return up to `count` recent tweets
+        (original posts only — retweets and replies are typically mixed in but
+        can be filtered by the caller).
 
-        Expected return (list of):
+        Returns list of:
         {
-          "id": "...",
-          "text": "...",
-          "created_at": "...",
+          "text": "…",
+          "created_at": "2024-05-01T12:00:00.000Z",
           "public_metrics": {
             "like_count": 120,
             "retweet_count": 45,
-            "reply_count": 12,
-            "impression_count": 8000
+            "reply_count": 12
           }
         }
         """
-        log.info("twitter.stub.get_recent_tweets", username=username, count=count)
-        return []  # TODO: implement
+        cache_key = f"tw:tweets:{username.lower()}:{count}"
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        pw = browser = None
+        tweets: list[dict] = []
+        try:
+            pw, browser = await _launch_browser()
+            context, page = await _new_page(browser, self._bearer, self._cookie)
+            try:
+                await page.goto(
+                    f"{X_BASE}/{username}",
+                    timeout=PAGE_TIMEOUT,
+                    wait_until="domcontentloaded",
+                )
+                # Wait for at least the first tweet to appear
+                await page.wait_for_selector(SEL_TWEET_ARTICLE, timeout=12_000)
+
+                articles = await _scroll_and_collect(page, SEL_TWEET_ARTICLE, count)
+                for article in articles:
+                    parsed = await _parse_tweet_article(article)
+                    if parsed:
+                        tweets.append(parsed)
+
+                log.info("twitter.get_tweets.done", username=username, count=len(tweets))
+            finally:
+                await context.close()
+        except Exception as e:
+            log.warning("twitter.get_tweets.error", username=username, error=str(e))
+        finally:
+            if browser:
+                await browser.close()
+            if pw:
+                await pw.stop()
+
+        if tweets:
+            await cache_set(cache_key, tweets, CACHE_TTL)
+        return tweets
 
     async def search_mentions(self, project_name: str, count: int = 30) -> list[dict]:
         """
-        Search for recent tweets mentioning the project (not from the project account).
+        Load x.com/search?q={project_name}&src=typed_query&f=live and collect
+        the first page of results.
 
-        Expected return: same shape as get_recent_tweets() with additional
-        "author_username" key from expansions.
+        Returns list in the same shape as get_recent_tweets(), with an extra
+        "author_username" key when detectable.
         """
-        log.info("twitter.stub.search_mentions", project_name=project_name, count=count)
-        return []  # TODO: implement
+        cache_key = f"tw:mentions:{project_name.lower()}:{count}"
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        pw = browser = None
+        tweets: list[dict] = []
+        try:
+            pw, browser = await _launch_browser()
+            context, page = await _new_page(browser, self._bearer, self._cookie)
+            try:
+                search_url = (
+                    f"{X_BASE}/search?q={project_name.replace(' ', '%20')}"
+                    f"&src=typed_query&f=live"
+                )
+                await page.goto(search_url, timeout=PAGE_TIMEOUT, wait_until="domcontentloaded")
+                await page.wait_for_selector(SEL_TWEET_ARTICLE, timeout=12_000)
+
+                articles = await _scroll_and_collect(page, SEL_TWEET_ARTICLE, count)
+                for article in articles:
+                    parsed = await _parse_tweet_article(article)
+                    if not parsed:
+                        continue
+                    # Try to extract author handle
+                    author_el = await article.query_selector('[data-testid="User-Name"] a')
+                    if author_el:
+                        href = await author_el.get_attribute("href") or ""
+                        handle = _handle_from_url(href)
+                        if handle:
+                            parsed["author_username"] = handle
+                    tweets.append(parsed)
+
+                log.info("twitter.search_mentions.done", project=project_name, count=len(tweets))
+            finally:
+                await context.close()
+        except Exception as e:
+            log.warning("twitter.search_mentions.error", project=project_name, error=str(e))
+        finally:
+            if browser:
+                await browser.close()
+            if pw:
+                await pw.stop()
+
+        if tweets:
+            await cache_set(cache_key, tweets, CACHE_TTL)
+        return tweets

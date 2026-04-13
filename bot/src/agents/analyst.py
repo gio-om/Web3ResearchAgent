@@ -275,6 +275,22 @@ async def analyst_node(state: dict) -> dict:
         # ── Start from previous report, then overwrite updated sections ──────
         report: dict = {**prev_report} if prev_report else {}
 
+        # Build project_links from all known URLs (merge prev + current, current wins)
+        project_urls = state.get("project_urls", {})
+        prev_links = prev_report.get("project_links", {}) or {}
+        project_links: dict = {**prev_links}
+        _LINK_KEYS = ("website", "twitter", "telegram", "discord", "github",
+                      "linkedin", "medium", "reddit", "youtube", "docs")
+        for key in _LINK_KEYS:
+            if project_urls.get(key):
+                project_links[key] = project_urls[key]
+        # Docs URL from documentation agent
+        if documentation_data.get("docs_url") and not project_links.get("docs"):
+            project_links["docs"] = documentation_data["docs_url"]
+        # Always include CryptoRank page
+        if project_slug and not project_links.get("cryptorank"):
+            project_links["cryptorank"] = f"https://cryptorank.io/price/{project_slug}"
+
         # Always update identity and scoring fields
         report.update({
             "project_name": project_name,
@@ -293,6 +309,7 @@ async def analyst_node(state: dict) -> dict:
             "weaknesses": llm_result.get("weaknesses") or prev_report.get("weaknesses", []),
             "summary": llm_result.get("summary") or prev_report.get("summary", ""),
             "data_sources": data_sources,
+            "project_links": project_links,
         })
 
         # Overwrite aggregator-derived sections only when aggregator was run
@@ -303,6 +320,14 @@ async def analyst_node(state: dict) -> dict:
             }
             report["funding_rounds"] = _build_funding_rounds(cr.get("funding_rounds", []))
             report["investors"] = _build_investor_list(cr.get("funding_rounds", []))
+
+        # If aggregator didn't run, try to use CoinGecko data fetched by social node
+        if "coingecko_summary" not in report:
+            cg_from_social = social_data.get("coingecko_summary") or {}
+            report["coingecko_summary"] = {
+                "fdv_usd": cg_from_social.get("fdv_usd"),
+                "market_cap_usd": cg_from_social.get("market_cap_usd"),
+            }
 
         # Overwrite tokenomics when aggregator or documentation was run
         if "aggregator" in enabled_modules or "documentation" in enabled_modules:

@@ -19,7 +19,7 @@ async def aggregator_node(state: dict) -> dict:
     errors = list(state.get("errors", []))
 
     try:
-        from src.services.cryptorank import CryptoRankClient
+        from src.services.cryptorank import CryptoRankClient, _LINK_TYPES
         client = CryptoRankClient()
 
         project = await client.search_project(project_name)
@@ -34,6 +34,12 @@ async def aggregator_node(state: dict) -> dict:
                     "funding_rounds": funding,
                     "vesting": vesting,
                 }
+                # Back-fill project URLs from CryptoRank (highest priority)
+                state_urls = dict(state.get("project_urls", {}))
+                for key in _LINK_TYPES:
+                    if details.get(key) and not state_urls.get(key):
+                        state_urls[key] = details[key]
+                state = {**state, "project_urls": state_urls}
     except Exception as e:
         log.warning("aggregator.cryptorank_failed", error=str(e))
         errors.append(f"CryptoRank: {e}")
@@ -44,7 +50,7 @@ async def aggregator_node(state: dict) -> dict:
         coin_data = await cg.get_coin_by_name(project_name)
         if coin_data:
             aggregator_data["coingecko"] = coin_data
-            # Back-fill project URLs from CoinGecko if not already set
+            # Back-fill project URLs from CoinGecko only for keys missing after CryptoRank
             state_urls = dict(state.get("project_urls", {}))
             if coin_data.get("website") and not state_urls.get("website"):
                 state_urls["website"] = coin_data["website"]

@@ -1,14 +1,74 @@
 # PROJECT_STATE.md — Web3 Due Diligence Bot
 
 > Документ для восстановления контекста в новой сессии.
-> Актуален на: 2026-04-09
-> Статус: **Фазы 1–6 завершены. CryptoRank API работает. Mini-app работает. Поддержка OpenAI-провайдера добавлена.**
+> Актуален на: 2026-04-14
+> Статус: **Фазы 1–6 завершены. CryptoRank API работает. Mini-app работает. OpenAI-провайдер добавлен. Twitter/X scraper реализован на Playwright.**
 
 ---
 
 ## Текущий статус
 
-Всё работает. Добавлен выбор LLM-провайдера (Claude / OpenAI) через `.env`. OpenAI-путь протестирован с моделью `gpt-5.1-codex` через orcai.cc.
+Всё работает. `twitter.py` — полностью реализован через Playwright + Bearer Token (аналогично CryptoRank). Заглушка удалена.
+
+---
+
+## Сессия 2026-04-14 — Twitter/X scraper (Playwright + Bearer Token)
+
+### Что сделано
+
+Заглушка `twitter.py` полностью заменена на реальный Playwright-скрапер. Паттерн аутентификации идентичен CryptoRank: токены копируются из браузера DevTools и хранятся в `.env`.
+
+#### Изменённые файлы
+
+| Файл | Изменение |
+|---|---|
+| `bot/src/services/twitter.py` | **Полная перепись** — Playwright headless Chromium, Bearer Token инъекция через `context.route()`, DOM-парсинг твитов |
+| `bot/src/config.py` | Добавлено поле `TWITTER_AUTH_COOKIE: str = ""` |
+| `bot/pyproject.toml` | Добавлена зависимость `playwright>=1.44.0` |
+| `bot/Dockerfile` | Добавлен шаг `playwright install chromium --with-deps` |
+
+#### Архитектура twitter.py
+
+```
+TwitterClient
+├── find_project_account(project_name)
+│     Перебирает handle-кандидаты (camelCase / underscore / lower),
+│     навигирует x.com/{handle}, проверяет наличие [data-testid="UserName"]
+│
+├── get_profile(username)
+│     Загружает x.com/{username}, парсит:
+│       - display name, bio
+│       - followers / following (из href="/username/followers")
+│
+├── get_recent_tweets(username, count=50)
+│     Скроллит таймлайн (MAX_SCROLL_ROUNDS=6, пауза 1.8 с),
+│     собирает article[data-testid="tweet"], парсит text + created_at + metrics
+│
+└── search_mentions(project_name, count=30)
+      Навигирует x.com/search?q={name}&f=live,
+      собирает твиты + author_username из href атрибутов
+```
+
+#### Аутентификация (из браузера DevTools)
+
+- `TWITTER_BEARER_TOKEN` — значение заголовка `Authorization` из любого XHR-запроса к `api.x.com`. Инжектируется через Playwright `context.route()` во все запросы к `*.x.com` / `*.twitter.com`.
+- `TWITTER_AUTH_COOKIE` — raw строка заголовка `Cookie` (например `auth_token=abc; ct0=xyz`). Парсится и добавляется как cookies в browser context через `context.add_cookies()`. Опционально — без него публичные профили скрапятся без аутентификации.
+
+#### Особенности реализации
+
+- Каждый вызов метода запускает и останавливает свой `async_playwright` + `browser` — без persistent пула (простота, без утечек).
+- `playwright` импортируется лениво (`from playwright.async_api import async_playwright`) — если библиотека не установлена, ошибка проявится только при вызове.
+- Все методы exception-safe: любое исключение логируется через structlog, метод возвращает `{}` / `[]`.
+- Redis-кэш TTL 1800 с (30 мин) — одинаково для всех методов.
+- `_parse_metric("1.2K")` → `1200`, `"2.5M"` → `2_500_000` — нормализация чисел из DOM.
+- В Docker: `--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage` обязательны для Chromium внутри контейнера.
+
+#### Как получить токены
+
+1. Открыть `x.com` в браузере → F12 → Network → любой XHR-запрос к `api.x.com`
+2. `TWITTER_BEARER_TOKEN` → Headers → Authorization (значение после слова "Bearer ")
+3. `TWITTER_AUTH_COOKIE` → Headers → Cookie (вся строка целиком)
+4. Вставить в `.env`, пересобрать: `docker compose up --build -d`
 
 ---
 
@@ -268,10 +328,11 @@ docker compose exec redis redis-cli FLUSHDB
 
 | Приоритет | Проблема | Файл | Статус |
 |---|---|---|---|
-| 🟡 MED | Bearer токен истекает — нет авто-обновления | `cryptorank.py` | Обновлять вручную из DevTools |
-| 🟡 MED | `twitter.py` — заглушка | `services/twitter.py` | Не реализован |
+| 🟡 MED | Bearer токен истекает — нет авто-обновления | `cryptorank.py`, `twitter.py` | Обновлять вручную из DevTools |
 | 🟡 MED | `report_data` сохраняется в БД без поля `id` | `analyst.py` | Не мешает работе (id добавляется в state) |
+| 🟡 MED | `twitter.py` — каждый вызов создаёт новый browser process | `services/twitter.py` | При высокой нагрузке оптимизировать через пул |
 | 🟢 LOW | `docs` режим медленный (aggregator + docs) | `handlers/analyze.py` | Ожидаемо, не баг |
+| 🟢 LOW | X может показывать логин-стену в headless режиме | `services/twitter.py` | Решается заполнением `TWITTER_AUTH_COOKIE` |
 
 ---
 
@@ -301,7 +362,7 @@ Mini App: React 18 + Vite 5 + TypeScript + Tailwind CSS v4 + recharts.
 - `coingecko.py` — плоская структура данных
 - `scraper.py` — BFS-скрапер
 - `cryptorank.py` — **✅ полностью реализован** (Bearer token, 4 эндпоинта API)
-- `twitter.py` — заглушка
+- `twitter.py` — **✅ полностью реализован** (Playwright + Bearer token, DOM-скрапинг)
 
 ### Фаза 3 — Агенты
 Граф: `START → orchestrator → dispatcher → cross_check → analyst → END`
@@ -326,8 +387,11 @@ ErrorBoundary оборачивает весь роутер — render-ошибк
 
 | Файл | Что изменено |
 |---|---|
+| `bot/src/services/twitter.py` | **Полная перепись** — Playwright + Bearer Token, DOM-скрапинг (сессия 2026-04-14) |
+| `bot/src/config.py` | `CRYPTORANK_BEARER`; `LLM_PROVIDER`, `OPENAI_*` (04-09); `TWITTER_AUTH_COOKIE` (04-14) |
+| `bot/pyproject.toml` | `playwright>=1.44.0` (сессия 2026-04-14) |
+| `bot/Dockerfile` | `playwright install chromium --with-deps` (сессия 2026-04-14) |
 | `bot/src/services/cryptorank.py` | **Полная перепись** — Bearer API вместо HTML scraping |
-| `bot/src/config.py` | `CRYPTORANK_BEARER`; `LLM_PROVIDER`, `OPENAI_*` (сессия 2026-04-09) |
 | `.env` | `CRYPTORANK_BEARER`; `LLM_PROVIDER`, `OPENAI_*` (сессия 2026-04-09) |
 | `.env.example` | `LLM_PROVIDER`, `OPENAI_*` (сессия 2026-04-09) |
 | `bot/src/services/llm.py` | OpenAI SSE-провайдер, routing по `LLM_PROVIDER` (сессия 2026-04-09) |

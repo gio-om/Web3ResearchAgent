@@ -36,6 +36,24 @@ async def social_node(state: dict) -> dict:
     social_data: dict = {}
     errors = list(state.get("errors", []))
 
+    # Resolve social URLs (CryptoRank priority → CoinGecko fallback)
+    from src.agents.resolve_urls import resolve_project_urls
+    project_urls = await resolve_project_urls(project_name, project_urls)
+
+    # Fetch FDV / MCap separately for coingecko_summary in the report
+    coingecko_summary: dict = {}
+    try:
+        from src.services.coingecko import CoinGeckoClient
+        cg = CoinGeckoClient()
+        coin_data = await cg.get_coin_by_name(project_name)
+        if coin_data:
+            coingecko_summary = {
+                "fdv_usd": coin_data.get("fdv_usd"),
+                "market_cap_usd": coin_data.get("market_cap_usd"),
+            }
+    except Exception as e:
+        log.warning("social.coingecko_failed", error=str(e))
+
     try:
         from src.services.twitter import TwitterClient
         from src.services.llm import LLMService
@@ -92,10 +110,11 @@ async def social_node(state: dict) -> dict:
                 "kol_mentions": sentiment_result.get("notable_supporters", []),
                 "bot_activity_signals": sentiment_result.get("bot_activity_signals", []),
                 "overall_assessment": sentiment_result.get("overall_assessment", ""),
+                "coingecko_summary": coingecko_summary,
             }
         else:
             log.info("social.no_twitter_account", project=project_name)
-            social_data["error"] = "Twitter account not found"
+            social_data = {"error": "Twitter account not found", "coingecko_summary": coingecko_summary}
 
     except Exception as e:
         log.warning("social.failed", error=str(e))
@@ -107,5 +126,6 @@ async def social_node(state: dict) -> dict:
         **state,
         "social_data": social_data,
         "social_done": True,
+        "project_urls": project_urls,
         "errors": errors,
     }

@@ -10,6 +10,7 @@ import TokenDistribution from "./components/TokenDistribution";
 import FundsList from "./components/FundsList";
 import TeamVerification from "./components/TeamVerification";
 import ScoreGauge from "./components/ScoreGauge";
+import SocialAnalysis from "./components/SocialAnalysis";
 
 // ─── Error Boundary ───────────────────────────────────────────────────────────
 
@@ -120,6 +121,13 @@ function ReportView({ reportId }: { reportId: number }) {
 
       <Section title="Team">
         <TeamVerification team={report.team ?? []} />
+      </Section>
+
+      <Section title="Socials">
+        <SocialAnalysis
+          social={report.social}
+          links={report.project_links ?? {}}
+        />
       </Section>
 
       {(report.data_sources?.length ?? 0) > 0 && (

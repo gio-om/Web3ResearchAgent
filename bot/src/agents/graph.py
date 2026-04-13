@@ -135,8 +135,13 @@ async def dispatcher_node(state: dict) -> dict:
             for key in _AGENT_KEYS[index]:
                 if key in result:
                     merged[key] = result[key]
-            if index == 0 and "project_urls" in result:
-                merged["project_urls"] = result["project_urls"]
+            # Merge project_urls from any agent: existing keys win, new keys are added
+            if "project_urls" in result:
+                current_urls = dict(merged.get("project_urls") or {})
+                for k, v in (result["project_urls"] or {}).items():
+                    if v and not current_urls.get(k):
+                        current_urls[k] = v
+                merged["project_urls"] = current_urls
 
         await _edit_progress(state, done_names, failed_names, enabled_list)
 

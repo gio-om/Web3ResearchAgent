@@ -99,18 +99,33 @@ def _slugify_candidates(name: str) -> list[str]:
     return result
 
 
+_LINK_TYPES = {
+    "website", "twitter", "telegram", "discord",
+    "github", "medium", "reddit", "youtube", "linkedin",
+}
+
+
+def _clean_url(url: str) -> str:
+    """Strip trailing slash and query/fragment params from a social URL."""
+    # Remove fragment
+    url = url.split("#")[0]
+    # Remove query string (tracking params like ?hzet=... from CryptoRank)
+    url = url.split("?")[0]
+    return url.rstrip("/")
+
+
 def _extract_links(links_list: list) -> dict:
+    """
+    Extract social/link URLs from the CryptoRank links array.
+    Returns clean full URLs for all known social types (not handles).
+    """
     result: dict = {}
     for item in links_list or []:
-        t = item.get("type", "")
-        v = item.get("value", "")
-        if not v:
+        t = (item.get("type") or "").lower()
+        v = (item.get("value") or "").strip()
+        if not v or t not in _LINK_TYPES or t in result:
             continue
-        if t == "website" and "website" not in result:
-            result["website"] = v
-        elif t == "twitter" and "twitter" not in result:
-            handle = v.rstrip("/").split("/")[-1].split("?")[0]
-            result["twitter"] = handle
+        result[t] = _clean_url(v)
     return result
 
 
@@ -239,8 +254,8 @@ class CryptoRankClient:
                 "slug": coin["key"],
                 "name": coin.get("name", name),
                 "symbol": coin.get("symbol", ""),
-                "website": links.get("website", ""),
-                "twitter": links.get("twitter", ""),
+                # All social links as full URLs
+                **{k: links[k] for k in _LINK_TYPES if k in links},
             }
             log.info("cryptorank.search.found", name=name, slug=coin["key"])
             await cache_set(cache_key, result, ttl=3600)
@@ -284,9 +299,9 @@ class CryptoRankClient:
             "has_funding_rounds": coin.get("hasFundingRounds", False),
             "has_vesting": coin.get("hasVesting", False),
             "listing_date": coin.get("listingDate", ""),
-            "website": links.get("website", ""),
-            "twitter": links.get("twitter", ""),
             "description": coin.get("shortDescription", ""),
+            # All social links as full URLs (keys match _LINK_TYPES)
+            **{k: links[k] for k in _LINK_TYPES if k in links},
         }
         await cache_set(cache_key, result, ttl=3600)
         return result

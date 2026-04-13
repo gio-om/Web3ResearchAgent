@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml .
 RUN pip install --no-cache-dir --upgrade pip setuptools && pip install --no-cache-dir -e .
 
+# Install Playwright browsers (Chromium + system deps)
+RUN playwright install chromium --with-deps
+
 COPY . .
 
 CMD ["sh", "-c", "alembic upgrade head && python -m src.main"]
