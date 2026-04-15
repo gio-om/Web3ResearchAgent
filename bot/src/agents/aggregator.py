@@ -3,6 +3,10 @@ Aggregator agent: fetches quantitative data from Cryptorank and CoinGecko.
 """
 import structlog
 
+def _clean_url(url: str) -> str:
+    """Strip tracking query params and trailing slashes."""
+    return url.split("?")[0].split("#")[0].rstrip("/")
+
 log = structlog.get_logger()
 
 
@@ -38,7 +42,7 @@ async def aggregator_node(state: dict) -> dict:
                 state_urls = dict(state.get("project_urls", {}))
                 for key in _LINK_TYPES:
                     if details.get(key) and not state_urls.get(key):
-                        state_urls[key] = details[key]
+                        state_urls[key] = _clean_url(details[key])
                 state = {**state, "project_urls": state_urls}
     except Exception as e:
         log.warning("aggregator.cryptorank_failed", error=str(e))
@@ -53,7 +57,7 @@ async def aggregator_node(state: dict) -> dict:
             # Back-fill project URLs from CoinGecko only for keys missing after CryptoRank
             state_urls = dict(state.get("project_urls", {}))
             if coin_data.get("website") and not state_urls.get("website"):
-                state_urls["website"] = coin_data["website"]
+                state_urls["website"] = _clean_url(coin_data["website"])
             if coin_data.get("twitter_handle") and not state_urls.get("twitter"):
                 state_urls["twitter"] = f"https://twitter.com/{coin_data['twitter_handle']}"
             state = {**state, "project_urls": state_urls}

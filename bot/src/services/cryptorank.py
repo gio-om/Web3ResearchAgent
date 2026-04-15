@@ -227,9 +227,59 @@ def _extract_investor_names(investors) -> list[str]:
 class CryptoRankClient:
     """Direct JSON API client for api.cryptorank.io using Bearer token auth."""
 
+    async def _search_by_query(self, name: str) -> dict | None:
+        """
+        Fallback search via GET /v0/coins?search=NAME when slug lookup fails.
+        Returns the same dict format as search_project, or None.
+        """
+        data = await _api_get("/v0/coins", params={"search": name, "limit": 10})
+        if not data:
+            return None
+        items = None
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            items = data.get("data") or data.get("coins") or []
+        if not items:
+            return None
+
+        name_lower = name.lower()
+        # Prefer exact symbol or name match, then fall back to first result
+        chosen = None
+        for item in items:
+            sym = (item.get("symbol") or "").lower()
+            nm = (item.get("name") or "").lower()
+            if sym == name_lower or nm == name_lower:
+                chosen = item
+                break
+        if chosen is None:
+            chosen = items[0]
+
+        key = chosen.get("key") or chosen.get("slug") or chosen.get("id")
+        if not key:
+            return None
+
+        # Fetch full details to get social links
+        details = await _api_get(f"/v0/coins/{key}")
+        coin = (details.get("data") if isinstance(details, dict) else None) or chosen
+        links = _extract_links(coin.get("links", []))
+        result = {
+            "id": key,
+            "slug": key,
+            "name": coin.get("name", name),
+            "symbol": coin.get("symbol", ""),
+            **{k: links[k] for k in _LINK_TYPES if k in links},
+        }
+        log.info("cryptorank.search.found_via_query", name=name, slug=key)
+        return result
+
     async def search_project(self, name: str) -> dict | None:
         """
         Find a project on CryptoRank by name.
+
+        Strategy:
+          1. Direct slug lookup — fast, exact match.
+          2. Query-based search (GET /v0/coins?search=NAME) — fallback when slug fails.
 
         Returns:
             {"id": slug, "name": ..., "symbol": ..., "website": ..., "twitter": ...}
@@ -240,6 +290,7 @@ class CryptoRankClient:
         if cached is not None:
             return cached or None
 
+        # Step 1: try direct slug variants
         for slug in _slugify_candidates(name):
             data = await _api_get(f"/v0/coins/{slug}")
             if not data:
@@ -258,6 +309,13 @@ class CryptoRankClient:
                 **{k: links[k] for k in _LINK_TYPES if k in links},
             }
             log.info("cryptorank.search.found", name=name, slug=coin["key"])
+            await cache_set(cache_key, result, ttl=3600)
+            return result
+
+        # Step 2: slug lookup failed — try query-based search
+        log.info("cryptorank.search.trying_query_fallback", name=name)
+        result = await self._search_by_query(name)
+        if result:
             await cache_set(cache_key, result, ttl=3600)
             return result
 

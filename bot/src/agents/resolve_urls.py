@@ -9,6 +9,11 @@ import structlog
 log = structlog.get_logger()
 
 
+def _clean(url: str) -> str:
+    """Strip tracking query params and trailing slashes from any social URL."""
+    return url.split("?")[0].split("#")[0].rstrip("/")
+
+
 async def resolve_project_urls(project_name: str, project_urls: dict) -> dict:
     """
     Fetch social/website links for *project_name* and merge into *project_urls*.
@@ -28,7 +33,7 @@ async def resolve_project_urls(project_name: str, project_urls: dict) -> dict:
                 details = await cr.get_project_details(cr_id)
                 for key in _LINK_TYPES:
                     if details.get(key) and not urls.get(key):
-                        urls[key] = details[key]
+                        urls[key] = _clean(details[key])
     except Exception as e:
         log.warning("resolve_urls.cryptorank_failed", project=project_name, error=str(e))
 
@@ -39,7 +44,7 @@ async def resolve_project_urls(project_name: str, project_urls: dict) -> dict:
         coin = await cg.get_coin_by_name(project_name)
         if coin:
             if coin.get("website") and not urls.get("website"):
-                urls["website"] = coin["website"]
+                urls["website"] = _clean(coin["website"])
             if coin.get("twitter_handle") and not urls.get("twitter"):
                 urls["twitter"] = f"https://twitter.com/{coin['twitter_handle']}"
     except Exception as e:

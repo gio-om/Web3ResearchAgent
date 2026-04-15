@@ -65,13 +65,22 @@ async def social_node(state: dict) -> dict:
         twitter_handle = None
         twitter_url = project_urls.get("twitter", "")
         if twitter_url:
-            # Extract handle from URL like https://twitter.com/LayerZero_Labs
-            parts = twitter_url.rstrip("/").split("/")
-            if parts:
-                twitter_handle = parts[-1].lstrip("@")
+            # Strip tracking params (e.g. ?hzet=... added by CryptoRank) before parsing
+            clean_url = twitter_url.split("?")[0].split("#")[0].rstrip("/")
+            parts = clean_url.split("/")
+            candidate = parts[-1].lstrip("@") if parts else ""
+            # Ignore bare domain segments
+            if candidate and candidate.lower() not in ("twitter.com", "x.com", ""):
+                twitter_handle = candidate
+            # Normalise the stored URL to the clean version
+            project_urls["twitter"] = f"https://twitter.com/{twitter_handle}" if twitter_handle else clean_url
 
         if not twitter_handle:
             twitter_handle = await twitter.find_project_account(project_name)
+
+        # Back-fill project_urls so the URL appears in project_links in the report
+        if twitter_handle and not project_urls.get("twitter"):
+            project_urls["twitter"] = f"https://twitter.com/{twitter_handle}"
 
         if twitter_handle:
             profile = await twitter.get_profile(twitter_handle)
