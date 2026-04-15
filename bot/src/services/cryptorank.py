@@ -246,16 +246,21 @@ class CryptoRankClient:
             return None
 
         name_lower = name.lower()
-        # Prefer exact symbol or name match, then fall back to first result
+        # Exact symbol or name match; partial name-contains match as second priority
         chosen = None
+        partial = None
         for item in items:
             sym = (item.get("symbol") or "").lower()
             nm = (item.get("name") or "").lower()
             if sym == name_lower or nm == name_lower:
                 chosen = item
                 break
+            if partial is None and (name_lower in nm or nm in name_lower):
+                partial = item
         if chosen is None:
-            chosen = items[0]
+            chosen = partial
+        if chosen is None:
+            return None
 
         key = chosen.get("key") or chosen.get("slug") or chosen.get("id")
         if not key:

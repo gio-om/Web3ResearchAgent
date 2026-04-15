@@ -15,10 +15,8 @@ class Settings(BaseSettings):
     CRYPTORANK_API_KEY: str = ""
     CRYPTORANK_COOKIE: str = ""
     CRYPTORANK_BEARER: str = ""
-    # Twitter/X — both values are captured from browser DevTools:
-    #   TWITTER_BEARER_TOKEN : Authorization header value  (Network → Headers → Authorization)
-    #   TWITTER_AUTH_COOKIE  : raw Cookie header string    (Network → Headers → Cookie)
-    TWITTER_BEARER_TOKEN: str = ""
+    # Twitter/X — cookie captured from browser DevTools:
+    #   Open x.com → DevTools → Network → any request → Headers → Cookie → copy full string
     TWITTER_AUTH_COOKIE: str = ""
 
     # Database

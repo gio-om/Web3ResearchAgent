@@ -84,8 +84,8 @@ async def social_node(state: dict) -> dict:
 
         if twitter_handle:
             profile = await twitter.get_profile(twitter_handle)
-            tweets = await twitter.get_recent_tweets(twitter_handle, count=50)
-            mentions = await twitter.search_mentions(project_name, count=30)
+            tweets = await twitter.get_recent_tweets(twitter_handle, count=20)
+            mentions = await twitter.search_mentions(project_name, count=15)
 
             # Combine tweets for sentiment analysis
             all_tweets = [t.get("text", "") for t in (tweets + mentions)[:50]]

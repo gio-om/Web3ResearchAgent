@@ -48,7 +48,7 @@ _AGENT_KEYS = [
 ]
 
 
-_AGENT_TIMEOUT = 60  # seconds per agent
+_AGENT_TIMEOUT = 150  # seconds per agent
 
 _MODULE_LABEL = {
     "aggregator":    "Сбор данных с агрегаторов",

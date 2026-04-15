@@ -1,16 +1,10 @@
 """
-Twitter/X scraper using Playwright + Bearer Token auth.
+Twitter/X scraper using Playwright (cookie-based auth, no API).
 
-Auth (same pattern as CryptoRank):
-  - TWITTER_BEARER_TOKEN  — injected as "Authorization: Bearer …" header
-                            into every request Playwright makes to x.com / api.x.com
-  - TWITTER_AUTH_COOKIE   — raw Cookie header string from browser DevTools
-                            (e.g. "auth_token=abc123; ct0=xyz…"); injects
-                            cookies into the browser context for authenticated
-                            access to public timelines.
-
-Both values are optional — without them the scraper still works for fully
-public profiles (crypto projects are almost always public).
+Auth:
+  - TWITTER_AUTH_COOKIE — raw Cookie header string from browser DevTools
+                          (e.g. "auth_token=abc123; ct0=xyz…")
+                          Copy from: DevTools → Network → any x.com request → Headers → Cookie
 
 Strategy:
   1. find_project_account()  — try common handle patterns; navigate each
@@ -22,7 +16,7 @@ Strategy:
 All methods:
   - Cache responses in Redis (TTL 1800 s = 30 min)
   - Return {} / [] on error — never raise
-  - Use headless Chromium via Playwright
+  - Use headless Chromium via Playwright with anti-bot measures
 """
 from __future__ import annotations
 
@@ -40,8 +34,8 @@ log = structlog.get_logger()
 CACHE_TTL = 1800          # 30 min
 PAGE_TIMEOUT = 30_000     # ms — initial page load
 NAV_TIMEOUT = 20_000      # ms — subsequent navigations
-SCROLL_PAUSE = 1.8        # seconds between scrolls
-MAX_SCROLL_ROUNDS = 6     # how many times to scroll down the timeline
+SCROLL_PAUSE = 3.5        # seconds between scrolls (X needs time to fetch new tweets)
+MAX_SCROLL_ROUNDS = 8     # how many times to scroll down the timeline
 
 X_BASE = "https://x.com"
 
@@ -128,17 +122,20 @@ async def _launch_browser():
             "--no-sandbox",
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
-            "--disable-blink-features=AutomationControlled",
+            # Do NOT pass --disable-blink-features=AutomationControlled —
+            # it's detectable. We hide webdriver via init script instead.
+            "--disable-infobars",
+            "--disable-notifications",
+            "--start-maximized",
         ],
+        ignore_default_args=["--enable-automation"],
     )
     return pw, browser
 
 
-async def _new_page(browser, bearer: str, raw_cookie: str):
+async def _new_page(browser, raw_cookie: str):
     """
-    Create a browser context with:
-      - Bearer token injected into every request header
-      - Optional auth cookies for authenticated sessions
+    Create a browser context with auth cookies injected for authenticated sessions.
     """
     context = await browser.new_context(
         viewport={"width": 1280, "height": 900},
@@ -150,19 +147,6 @@ async def _new_page(browser, bearer: str, raw_cookie: str):
         locale="en-US",
     )
 
-    # Inject Bearer token into matching requests
-    if bearer:
-        async def _inject_bearer(route):
-            url = route.request.url
-            if any(h in url for h in ("x.com", "twitter.com", "twimg.com")):
-                headers = dict(route.request.headers)
-                headers["authorization"] = f"Bearer {bearer}"
-                await route.continue_(headers=headers)
-            else:
-                await route.continue_()
-
-        await context.route("**/*", _inject_bearer)
-
     # Inject session cookies
     if raw_cookie:
         cookies = _parse_cookie_string(raw_cookie)
@@ -170,10 +154,16 @@ async def _new_page(browser, bearer: str, raw_cookie: str):
             await context.add_cookies(cookies)
 
     page = await context.new_page()
-    # Reduce bot-detection signals
-    await page.add_init_script(
-        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-    )
+    # Hide all common bot-detection signals
+    await page.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+        Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3]});
+        Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+        window.chrome = { runtime: {} };
+        Object.defineProperty(navigator, 'permissions', {
+            get: () => ({ query: () => Promise.resolve({ state: 'granted' }) })
+        });
+    """)
     return context, page
 
 
@@ -189,14 +179,29 @@ async def _scroll_and_collect(page, selector: str, count: int) -> list[Any]:
     for _ in range(MAX_SCROLL_ROUNDS):
         articles = await page.query_selector_all(selector)
         for el in articles:
-            el_id = await el.get_attribute("data-item-id") or str(await el.inner_html())[:80]
+            # Use tweet URL (/status/ID) as unique key; fall back to timestamp
+            link_el = await el.query_selector('a[href*="/status/"]')
+            if link_el:
+                el_id = await link_el.get_attribute("href") or ""
+            else:
+                time_el = await el.query_selector("time[datetime]")
+                el_id = (await time_el.get_attribute("datetime") or "") if time_el else ""
+            if not el_id:
+                el_id = str(id(el))  # last resort: object identity
             if el_id not in seen_ids:
                 seen_ids.add(el_id)
                 elements.append(el)
         if len(elements) >= count:
             break
-        await page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
+        prev_count = len(elements)
+        # Scroll one viewport at a time — scrolling to the very bottom skips content
+        await page.evaluate("window.scrollBy(0, window.innerHeight * 0.85)")
         await asyncio.sleep(SCROLL_PAUSE)
+        # If nothing new appeared after the wait, try one more slow scroll
+        articles_now = await page.query_selector_all(selector)
+        if len(articles_now) == prev_count:
+            await page.evaluate("window.scrollBy(0, window.innerHeight * 0.5)")
+            await asyncio.sleep(SCROLL_PAUSE)
 
     return elements[:count]
 
@@ -212,6 +217,11 @@ async def _parse_tweet_article(article) -> dict | None:
     """
     try:
         # --- text ---
+        # Expand truncated tweets ("Show more" button) before reading text
+        show_more = await article.query_selector('[data-testid="tweet-text-show-more-link"]')
+        if show_more:
+            await show_more.click()
+            await asyncio.sleep(0.5)
         text_el = await article.query_selector(SEL_TWEET_TEXT)
         text = (await text_el.inner_text()).strip() if text_el else ""
 
@@ -265,17 +275,16 @@ class TwitterClient:
     """Playwright-based scraper for public X (Twitter) profiles."""
 
     def __init__(self) -> None:
-        self._bearer = settings.TWITTER_BEARER_TOKEN.strip()
         self._cookie = settings.TWITTER_AUTH_COOKIE.strip()
-        if not self._bearer and not self._cookie:
+        if not self._cookie:
             log.warning(
                 "twitter.no_credentials",
-                hint="Set TWITTER_BEARER_TOKEN and/or TWITTER_AUTH_COOKIE in .env",
+                hint="Set TWITTER_AUTH_COOKIE in .env (copy Cookie header from x.com DevTools)",
             )
 
     @property
     def is_configured(self) -> bool:
-        return bool(self._bearer or self._cookie)
+        return bool(self._cookie)
 
     # ------------------------------------------------------------------
     # Public API  (same interface as the original stub)
@@ -303,7 +312,7 @@ class TwitterClient:
         pw = browser = None
         try:
             pw, browser = await _launch_browser()
-            context, page = await _new_page(browser, self._bearer, self._cookie)
+            context, page = await _new_page(browser, self._cookie)
             try:
                 for handle in candidates:
                     url = f"{X_BASE}/{handle}"
@@ -359,14 +368,15 @@ class TwitterClient:
         result: dict = {}
         try:
             pw, browser = await _launch_browser()
-            context, page = await _new_page(browser, self._bearer, self._cookie)
+            context, page = await _new_page(browser, self._cookie)
             try:
                 await page.goto(
                     f"{X_BASE}/{username}",
                     timeout=PAGE_TIMEOUT,
-                    wait_until="domcontentloaded",
+                    wait_until="load",
                 )
                 await page.wait_for_selector(SEL_USER_NAME, timeout=10_000)
+                await asyncio.sleep(1.5)
 
                 # --- Display name & handle ---
                 name_el = await page.query_selector(SEL_USER_NAME)
@@ -452,15 +462,15 @@ class TwitterClient:
         tweets: list[dict] = []
         try:
             pw, browser = await _launch_browser()
-            context, page = await _new_page(browser, self._bearer, self._cookie)
+            context, page = await _new_page(browser, self._cookie)
             try:
                 await page.goto(
                     f"{X_BASE}/{username}",
                     timeout=PAGE_TIMEOUT,
-                    wait_until="domcontentloaded",
+                    wait_until="load",
                 )
-                # Wait for at least the first tweet to appear
-                await page.wait_for_selector(SEL_TWEET_ARTICLE, timeout=12_000)
+                # Wait until an actual tweet *with text* is visible (not a skeleton)
+                await page.wait_for_selector(SEL_TWEET_TEXT, timeout=20_000)
 
                 articles = await _scroll_and_collect(page, SEL_TWEET_ARTICLE, count)
                 for article in articles:
@@ -500,14 +510,14 @@ class TwitterClient:
         tweets: list[dict] = []
         try:
             pw, browser = await _launch_browser()
-            context, page = await _new_page(browser, self._bearer, self._cookie)
+            context, page = await _new_page(browser, self._cookie)
             try:
                 search_url = (
                     f"{X_BASE}/search?q={project_name.replace(' ', '%20')}"
                     f"&src=typed_query&f=live"
                 )
-                await page.goto(search_url, timeout=PAGE_TIMEOUT, wait_until="domcontentloaded")
-                await page.wait_for_selector(SEL_TWEET_ARTICLE, timeout=12_000)
+                await page.goto(search_url, timeout=PAGE_TIMEOUT, wait_until="load")
+                await page.wait_for_selector(SEL_TWEET_TEXT, timeout=20_000)
 
                 articles = await _scroll_and_collect(page, SEL_TWEET_ARTICLE, count)
                 for article in articles:
