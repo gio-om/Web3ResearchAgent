@@ -1,14 +1,46 @@
 # PROJECT_STATE.md — Web3 Due Diligence Bot
 
 > Документ для восстановления контекста в новой сессии.
-> Актуален на: 2026-04-14
-> Статус: **Фазы 1–6 завершены. CryptoRank API работает. Mini-app работает. OpenAI-провайдер добавлен. Twitter/X scraper реализован на Playwright.**
+> Актуален на: 2026-04-15
+> Статус: **Фазы 1–6 завершены. CryptoRank API работает. Mini-app работает. OpenAI-провайдер добавлен. Twitter/X scraper реализован на Playwright. Все ссылки проекта отображаются в mini-app.**
 
 ---
 
 ## Текущий статус
 
 Всё работает. `twitter.py` — полностью реализован через Playwright + Bearer Token (аналогично CryptoRank). Заглушка удалена.
+
+---
+
+## Сессия 2026-04-15 — Все ссылки проекта в mini-app + SVG иконки
+
+### Что сделано
+
+#### 1. SVG иконки в ProjectLinks.tsx (коммит `ece884f`, частично предыдущий `6d11784`)
+Заменены emoji/символы на настоящие inline SVG логотипы:
+- **X (Twitter)** — официальный логотип X (диагональный крест), `text-gray-900`
+- **Discord** — официальный логотип Discord (robot mask), `text-indigo-500`
+- **CryptoRank** — кастомная SVG иконка с синим фоном и знаком "C>"
+- Все остальные: Telegram, GitHub, LinkedIn, Medium, Reddit, YouTube — тоже SVG
+- **Все кнопки**: `bg-white border border-gray-200 shadow-sm hover:bg-gray-50` (белый фон)
+
+Добавлены иконки для новых типов ссылок: GitBook, Whitepaper, Blog, CoinMarketCap, CoinGecko, Linktree.
+
+#### 2. Бот теперь собирает ВСЕ типы ссылок (не только 9 предопределённых)
+
+**Проблема:** `_LINK_TYPES` в `cryptorank.py` и `_LINK_KEYS` в `analyst.py` содержали хардкодные списки из 9–10 типов — `gitbook`, `whitepaper`, `blog`, `coinmarketcap` и другие игнорировались.
+
+**Файлы и изменения:**
+
+| Файл | Изменение |
+|---|---|
+| `bot/src/services/cryptorank.py` | `_extract_links` — убран фильтр `t not in _LINK_TYPES`, теперь захватываются все типы; spread `**links` вместо `{k: links[k] for k in _LINK_TYPES if k in links}` в `search_project` и `get_project_details` |
+| `bot/src/agents/aggregator.py` | Back-fill в `project_urls` теперь итерирует все ключи из `details` (кроме метаданных), убран импорт `_LINK_TYPES` |
+| `bot/src/agents/resolve_urls.py` | Аналогично: итерирует `details.items()` вместо `_LINK_TYPES`, убран импорт `_LINK_TYPES` |
+| `bot/src/agents/analyst.py` | `_LINK_KEYS` убран, заменён на `for key, url in project_urls.items()` — все ключи копируются в `project_links` |
+| `mini-app/src/components/ProjectLinks.tsx` | Добавлены иконки + конфиг для: `gitbook`, `whitepaper`, `blog`, `coinmarketcap`, `coingecko`, `linktree`; расширен `LINK_ORDER` |
+
+**Важно:** `_LINK_TYPES` в `cryptorank.py` **оставлен** — используется внешне как набор "приоритетных" соцсетей для back-fill в `social.py`. Это только документационный набор, не фильтр.
 
 ---
 
@@ -388,6 +420,11 @@ ErrorBoundary оборачивает весь роутер — render-ошибк
 | Файл | Что изменено |
 |---|---|
 | `bot/src/services/twitter.py` | **Полная перепись** — Playwright + Bearer Token, DOM-скрапинг (сессия 2026-04-14) |
+| `bot/src/services/cryptorank.py` | `_extract_links` захватывает все типы ссылок; `**links` spread вместо фильтра (04-15) |
+| `bot/src/agents/aggregator.py` | Back-fill всех ключей из CryptoRank в `project_urls`, убран `_LINK_TYPES` (04-15) |
+| `bot/src/agents/resolve_urls.py` | Итерирует все ключи `details`, убран `_LINK_TYPES` (04-15) |
+| `bot/src/agents/analyst.py` | `_LINK_KEYS` → `for key, url in project_urls.items()` — копируются все ключи (04-15) |
+| `mini-app/src/components/ProjectLinks.tsx` | **Перепись** — SVG иконки (X, Discord, CryptoRank, GitBook, CMC и др.), белый фон (04-15) |
 | `bot/src/config.py` | `CRYPTORANK_BEARER`; `LLM_PROVIDER`, `OPENAI_*` (04-09); `TWITTER_AUTH_COOKIE` (04-14) |
 | `bot/pyproject.toml` | `playwright>=1.44.0` (сессия 2026-04-14) |
 | `bot/Dockerfile` | `playwright install chromium --with-deps` (сессия 2026-04-14) |
