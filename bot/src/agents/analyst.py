@@ -279,11 +279,10 @@ async def analyst_node(state: dict) -> dict:
         project_urls = state.get("project_urls", {})
         prev_links = prev_report.get("project_links", {}) or {}
         project_links: dict = {**prev_links}
-        _LINK_KEYS = ("website", "twitter", "telegram", "discord", "github",
-                      "linkedin", "medium", "reddit", "youtube", "docs")
-        for key in _LINK_KEYS:
-            if project_urls.get(key):
-                project_links[key] = project_urls[key]
+        # Copy ALL URL types (website, twitter, gitbook, whitepaper, etc.)
+        for key, url in project_urls.items():
+            if url:
+                project_links[key] = url
         # Docs URL from documentation agent
         if documentation_data.get("docs_url") and not project_links.get("docs"):
             project_links["docs"] = documentation_data["docs_url"]

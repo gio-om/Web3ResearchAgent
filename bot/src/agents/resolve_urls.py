@@ -24,16 +24,21 @@ async def resolve_project_urls(project_name: str, project_urls: dict) -> dict:
 
     # ── CryptoRank (highest priority) ────────────────────────────────────────
     try:
-        from src.services.cryptorank import CryptoRankClient, _LINK_TYPES
+        from src.services.cryptorank import CryptoRankClient
         cr = CryptoRankClient()
         project = await cr.search_project(project_name)
         if project:
             cr_id = project.get("id") or project.get("slug")
             if cr_id:
                 details = await cr.get_project_details(cr_id)
-                for key in _LINK_TYPES:
-                    if details.get(key) and not urls.get(key):
-                        urls[key] = _clean(details[key])
+                # Copy ALL link types returned by CryptoRank, not just the predefined set
+                _non_link_keys = {"key", "name", "symbol", "category", "total_supply",
+                                   "max_supply", "available_supply", "fully_diluted_market_cap",
+                                   "market_cap", "rank", "has_funding_rounds", "has_vesting",
+                                   "listing_date", "description"}
+                for key, val in details.items():
+                    if key not in _non_link_keys and val and not urls.get(key):
+                        urls[key] = _clean(str(val))
     except Exception as e:
         log.warning("resolve_urls.cryptorank_failed", project=project_name, error=str(e))
 
