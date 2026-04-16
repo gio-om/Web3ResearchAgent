@@ -39,6 +39,9 @@ class AgentState(BaseModel):
         default_factory=lambda: ["aggregator", "documentation", "social", "team"]
     )
 
+    # Пользовательские настройки (загружаются из БД перед запуском)
+    user_settings: dict = Field(default_factory=dict)
+
     # Метаданные пайплайна
     errors: list[str] = Field(default_factory=list)
     status: str = "pending"            # pending | running | completed | failed

@@ -4,7 +4,7 @@ from typing import Any
 
 import structlog
 from aiogram import BaseMiddleware
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
 from src.config import settings
 
@@ -63,4 +63,35 @@ class UserRegistrationMiddleware(BaseMiddleware):
                     await session.commit()
             except Exception as e:
                 log.warning("user_registration.error", error=str(e))
+        return await handler(event, data)
+
+
+class LanguageMiddleware(BaseMiddleware):
+    """Inject user language from DB settings into handler data."""
+
+    async def __call__(
+        self,
+        handler: Callable[[Any, dict[str, Any]], Awaitable[Any]],
+        event: Any,
+        data: dict[str, Any],
+    ) -> Any:
+        from_user = None
+        if isinstance(event, Message):
+            from_user = event.from_user
+        elif isinstance(event, CallbackQuery):
+            from_user = event.from_user
+
+        lang = "ru"
+        if from_user:
+            try:
+                from src.db.engine import async_session_factory
+                from src.db.repositories import UserRepository
+                async with async_session_factory() as session:
+                    user = await UserRepository(session).get_by_id(from_user.id)
+                    if user and user.settings:
+                        lang = user.settings.get("lang", "ru")
+            except Exception as e:
+                log.warning("language_middleware.error", error=str(e))
+
+        data["lang"] = lang
         return await handler(event, data)

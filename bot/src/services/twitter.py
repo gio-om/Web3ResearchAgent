@@ -225,20 +225,26 @@ async def _parse_tweet_article(article) -> dict | None:
         text_el = await article.query_selector(SEL_TWEET_TEXT)
         text = (await text_el.inner_text()).strip() if text_el else ""
 
-        # --- timestamp ---
+        # --- timestamp & URL ---
         time_el = await article.query_selector(SEL_TIMESTAMP)
         created_at = ""
+        tweet_url = ""
         if time_el:
             created_at = await time_el.get_attribute("datetime") or ""
+            # The <time> element is wrapped in an <a href="/user/status/ID">
+            parent_a = await time_el.evaluate_handle("el => el.closest('a')")
+            if parent_a:
+                href = await parent_a.get_attribute("href") or ""
+                if "/status/" in href:
+                    tweet_url = f"https://x.com{href}" if href.startswith("/") else href
 
         # --- metrics via aria-label ---
-        like_count = retweet_count = reply_count = 0
-        for btn_testid in ("like", "retweet", "reply"):
+        like_count = retweet_count = reply_count = view_count = 0
+        for btn_testid in ("like", "retweet", "reply", "analyticsButton"):
             btn = await article.query_selector(f'[data-testid="{btn_testid}"]')
             if btn:
                 aria = await btn.get_attribute("aria-label") or ""
                 if not aria:
-                    # fallback: try inner text of nearest span
                     span = await btn.query_selector("span")
                     aria = (await span.inner_text()).strip() if span else ""
                 n = _parse_metric(aria.split()[0]) if aria else 0
@@ -248,6 +254,8 @@ async def _parse_tweet_article(article) -> dict | None:
                     retweet_count = n
                 elif btn_testid == "reply":
                     reply_count = n
+                elif btn_testid == "analyticsButton":
+                    view_count = n
 
         # Skip if no text (ads, "show more" cards, etc.)
         if not text:
@@ -256,10 +264,12 @@ async def _parse_tweet_article(article) -> dict | None:
         return {
             "text": text,
             "created_at": created_at,
+            "url": tweet_url,
             "public_metrics": {
                 "like_count": like_count,
                 "retweet_count": retweet_count,
                 "reply_count": reply_count,
+                "view_count": view_count,
             },
         }
     except Exception as e:

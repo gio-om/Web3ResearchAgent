@@ -1,4 +1,4 @@
-import type { SocialData } from "../types";
+import type { SocialData, TopPost } from "../types";
 import ProjectLinks from "./ProjectLinks";
 
 interface SocialAnalysisProps {
@@ -107,13 +107,21 @@ export default function SocialAnalysis({ social, links }: SocialAnalysisProps) {
 
           {/* Stats row */}
           {(social?.engagement_rate != null) && (
-            <div className="flex gap-4">
+            <div className="flex flex-wrap gap-2">
               <div className="rounded-lg bg-gray-50 px-3 py-1.5 text-center">
                 <p className="text-xs text-gray-400">Engagement</p>
                 <p className="text-sm font-semibold text-gray-700">
                   {(social.engagement_rate * 100).toFixed(2)}%
                 </p>
               </div>
+              {social?.avg_views_per_tweet != null && social.avg_views_per_tweet > 0 && (
+                <div className="rounded-lg bg-gray-50 px-3 py-1.5 text-center">
+                  <p className="text-xs text-gray-400">Avg views</p>
+                  <p className="text-sm font-semibold text-gray-700">
+                    {fmt(social.avg_views_per_tweet)}
+                  </p>
+                </div>
+              )}
               {social?.following_count != null && (
                 <div className="rounded-lg bg-gray-50 px-3 py-1.5 text-center">
                   <p className="text-xs text-gray-400">Following</p>
@@ -135,6 +143,35 @@ export default function SocialAnalysis({ social, links }: SocialAnalysisProps) {
             <p className="text-xs italic text-gray-500 leading-relaxed">
               "{social.overall_assessment}"
             </p>
+          )}
+
+          {/* Top posts */}
+          {(social?.top_posts?.length ?? 0) > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Top posts
+              </p>
+              <div className="space-y-2">
+                {social!.top_posts!.map((post: TopPost, i: number) => (
+                  <a
+                    key={i}
+                    href={post.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 hover:bg-gray-100 transition-colors"
+                  >
+                    <p className="text-xs text-gray-700 leading-relaxed line-clamp-2 mb-1.5">
+                      {post.text}{post.text.length >= 120 ? "…" : ""}
+                    </p>
+                    <div className="flex gap-3 text-xs text-gray-400">
+                      <span>❤️ {fmt(post.likes)}</span>
+                      <span>🔁 {fmt(post.retweets)}</span>
+                      {post.views > 0 && <span>👁 {fmt(post.views)}</span>}
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       )}

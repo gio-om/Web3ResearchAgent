@@ -115,10 +115,12 @@ async def create_bot() -> tuple[Bot, Dispatcher]:
     from src.bot.handlers.portfolio import router as portfolio_router
 
     # Register middlewares
-    from src.bot.middlewares import RateLimitMiddleware, LoggingMiddleware, UserRegistrationMiddleware
+    from src.bot.middlewares import RateLimitMiddleware, LoggingMiddleware, UserRegistrationMiddleware, LanguageMiddleware
     dp.message.middleware(LoggingMiddleware())
     dp.message.middleware(RateLimitMiddleware())
     dp.message.middleware(UserRegistrationMiddleware())
+    dp.message.middleware(LanguageMiddleware())
+    dp.callback_query.middleware(LanguageMiddleware())
 
     dp.include_router(start_router)
     dp.include_router(analyze_router)

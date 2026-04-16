@@ -42,11 +42,21 @@ export interface TeamMember {
   previous_projects: string[];
 }
 
+export interface TopPost {
+  url: string;
+  text: string;
+  likes: number;
+  retweets: number;
+  views: number;
+}
+
 export interface SocialData {
   handle?: string;
   followers_count?: number;
   following_count?: number;
   engagement_rate?: number;
+  avg_views_per_tweet?: number;
+  top_posts?: TopPost[];
   tweet_count?: number;
   sentiment_score?: number;
   key_concerns?: string[];

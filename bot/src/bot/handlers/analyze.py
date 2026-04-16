@@ -14,48 +14,38 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
+from src.bot.i18n import t
 from src.bot.keyboards import analysis_type_keyboard, report_keyboard
 
 router = Router(name="analyze")
 
 
 class AnalysisStates(StatesGroup):
-    choosing_mode = State()   # query stored, waiting for mode selection
+    choosing_mode = State()
 
 
-# ─── Mapping: mode → enabled_modules ────────────────────────────────────────
 _MODE_MODULES: dict[str, list[str]] = {
     "full":   ["aggregator", "documentation", "social", "team"],
     "market": ["aggregator"],
-    "docs":   ["aggregator", "documentation"],   # aggregator нужен для вестинга и раундов
+    "docs":   ["aggregator", "documentation"],
     "social": ["social"],
     "team":   ["team"],
 }
 
-_MODE_LABEL: dict[str, str] = {
-    "full":   "Полный анализ",
-    "market": "Рыночные данные",
-    "docs":   "Документация / токеномика",
-    "social": "Соцсети",
-    "team":   "Команда",
+_MODE_LABEL_KEY: dict[str, str] = {
+    "full":   "mode_full",
+    "market": "mode_market",
+    "docs":   "mode_docs",
+    "social": "mode_social",
+    "team":   "mode_team",
 }
 
-_MODULE_LABEL: dict[str, str] = {
-    "aggregator":    "Сбор данных с агрегаторов",
-    "documentation": "Анализ документации",
-    "social":        "Проверка соцсетей",
-    "team":          "Верификация команды",
+_MODULE_LABEL_KEY: dict[str, str] = {
+    "aggregator":    "module_aggregator",
+    "documentation": "module_documentation",
+    "social":        "module_social",
+    "team":          "module_team",
 }
-
-RESULT_TEMPLATE = (
-    "📊 <b>Анализ: {project_name}</b>\n\n"
-    "Скоринг: <b>{score}/100</b> {stars}\n"
-    "Рекомендация: <b>{recommendation}</b> {rec_emoji}\n\n"
-    "{investors_line}"
-    "{fdv_line}"
-    "\n{flags}\n"
-    "Источники данных: {sources}"
-)
 
 
 def _resolve_user_id(user_id: int, message: Message) -> int:
@@ -72,14 +62,14 @@ def _fmt_usd(value: float | None) -> str:
     return f"${value:,.0f}"
 
 
-def _build_progress_text(project_name: str, mode: str) -> str:
+def _build_progress_text(project_name: str, mode: str, lang: str) -> str:
     modules = _MODE_MODULES.get(mode, _MODE_MODULES["full"])
-    lines = [f"🔍 <b>Анализ проекта: {project_name}</b>"]
+    lines = [t("progress_header", lang, project=project_name)]
     if mode != "full":
-        lines.append(f"<i>Режим: {_MODE_LABEL.get(mode, mode)}</i>")
+        lines.append(t("progress_mode", lang, mode=t(_MODE_LABEL_KEY[mode], lang)))
     lines.append("")
     for m in modules:
-        lines.append(f"⏳ {_MODULE_LABEL[m]}...")
+        lines.append(f"⏳ {t(_MODULE_LABEL_KEY[m], lang)}...")
     return "\n".join(lines)
 
 
@@ -92,98 +82,79 @@ def recommendation_emoji(rec: str) -> str:
     return {"Strong": "🟢", "Interesting": "🟡", "DYOR": "🟠", "Avoid": "🔴"}.get(rec, "⚪")
 
 
-# ─── Ask user to choose mode ─────────────────────────────────────────────────
-
-async def _ask_mode(message: Message, state: FSMContext, query: str, user_id: int = 0) -> None:
-    """Store query in FSM and present the mode-selection keyboard."""
+async def _ask_mode(message: Message, state: FSMContext, query: str, lang: str, user_id: int = 0) -> None:
     await state.set_state(AnalysisStates.choosing_mode)
-    await state.update_data(query=query, user_id=_resolve_user_id(user_id, message))
+    await state.update_data(query=query, user_id=_resolve_user_id(user_id, message), lang=lang)
     await message.answer(
-        f"🔍 Проект: <b>{query}</b>\n\nВыбери тип анализа:",
-        reply_markup=analysis_type_keyboard(),
+        t("choose_analysis_mode", lang, query=query),
+        reply_markup=analysis_type_keyboard(lang),
     )
 
 
-# ─── Entry-point handlers ────────────────────────────────────────────────────
-
 @router.message(Command("analyze"))
-async def cmd_analyze(message: Message, state: FSMContext) -> None:
+async def cmd_analyze(message: Message, state: FSMContext, lang: str = "ru") -> None:
     args = message.text.split(maxsplit=1)
     if len(args) < 2 or not args[1].strip():
-        await message.answer(
-            "❓ Укажи название проекта или ссылку:\n"
-            "<code>/analyze LayerZero</code>\n"
-            "<code>/analyze https://cryptorank.io/price/layerzero</code>"
-        )
+        await message.answer(t("analyze_prompt", lang))
         return
-    await _ask_mode(message, state, args[1].strip())
+    await _ask_mode(message, state, args[1].strip(), lang)
 
 
 @router.message(F.text & ~F.text.startswith("/"))
-async def handle_plain_text(message: Message, state: FSMContext) -> None:
-    """Handle plain project name or URL without /analyze command."""
+async def handle_plain_text(message: Message, state: FSMContext, lang: str = "ru") -> None:
     query = message.text.strip()
     if len(query) < 2:
         return
-    await _ask_mode(message, state, query)
+    await _ask_mode(message, state, query, lang)
 
 
 @router.callback_query(F.data == "analyze_start")
-async def cb_analyze_start(callback: CallbackQuery) -> None:
+async def cb_analyze_start(callback: CallbackQuery, lang: str = "ru") -> None:
     await callback.answer()
-    await callback.message.answer(
-        "🔍 Введите название проекта или ссылку:\n"
-        "<code>LayerZero</code>\n"
-        "<code>https://cryptorank.io/price/layerzero</code>"
-    )
+    await callback.message.answer(t("enter_project", lang))
 
-
-# ─── Mode selection callback ─────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("atype:"))
-async def cb_analysis_type(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_analysis_type(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
     mode = callback.data.split(":", 1)[1]
     await callback.answer()
 
     if mode == "cancel":
         await state.clear()
-        await callback.message.edit_text("❌ Анализ отменён.")
+        await callback.message.edit_text(t("analysis_cancelled", lang))
         return
 
     if mode not in _MODE_MODULES:
-        await callback.message.edit_text("❓ Неизвестный режим анализа.")
+        await callback.message.edit_text(t("unknown_mode", lang))
         return
 
     fsm_data = await state.get_data()
     query = fsm_data.get("query", "")
     user_id = fsm_data.get("user_id") or callback.from_user.id
+    # Prefer lang stored when _ask_mode was called
+    stored_lang = fsm_data.get("lang", lang)
     await state.clear()
 
     if not query:
-        await callback.message.edit_text(
-            "❓ Не найден запрос. Введите название проекта заново."
-        )
+        await callback.message.edit_text(t("no_query", stored_lang))
         return
 
+    mode_label = t(_MODE_LABEL_KEY[mode], stored_lang)
     await callback.message.edit_text(
-        f"🔍 Проект: <b>{query}</b>\nРежим: <b>{_MODE_LABEL[mode]}</b>"
+        t("project_mode_label", stored_lang, query=query, mode=mode_label)
     )
-    await _run_analysis(callback.message, query, mode, user_id=user_id)
+    await _run_analysis(callback.message, query, mode, stored_lang, user_id=user_id)
 
-
-# ─── Reanalyze callback (always full) ────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("reanalyze:"))
-async def cb_reanalyze(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_reanalyze(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
     project_name = callback.data.split(":", 1)[1]
     await callback.answer()
-    await _ask_mode(callback.message, state, project_name, user_id=callback.from_user.id)
+    await _ask_mode(callback.message, state, project_name, lang, user_id=callback.from_user.id)
 
-
-# ─── Portfolio-add callback ───────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("portfolio_add:"))
-async def cb_portfolio_add(callback: CallbackQuery) -> None:
+async def cb_portfolio_add(callback: CallbackQuery, lang: str = "ru") -> None:
     report_id = int(callback.data.split(":", 1)[1])
     user_id = callback.from_user.id
 
@@ -196,34 +167,44 @@ async def cb_portfolio_add(callback: CallbackQuery) -> None:
 
             db_report = await report_repo.get_by_id(report_id)
             if db_report is None:
-                await callback.answer("❌ Отчёт не найден", show_alert=True)
+                await callback.answer(t("report_not_found", lang), show_alert=True)
                 return
 
             already = await portfolio_repo.is_in_portfolio(user_id, db_report.project_id)
             if already:
-                await callback.answer("Проект уже в портфеле", show_alert=False)
+                await callback.answer(t("already_in_portfolio", lang))
                 return
 
             await portfolio_repo.add(user_id=user_id, project_id=db_report.project_id)
             await session.commit()
 
-        await callback.answer("✅ Добавлено в портфель")
+        await callback.answer(t("added_to_portfolio", lang))
     except Exception as e:
-        await callback.answer(f"❌ Ошибка: {e}", show_alert=True)
+        await callback.answer(t("error_generic", lang, error=str(e)), show_alert=True)
 
 
-# ─── Core pipeline runner ─────────────────────────────────────────────────────
+async def _load_user_settings(user_id: int) -> dict:
+    try:
+        from src.db.engine import async_session_factory
+        from src.db.repositories import UserRepository
+        async with async_session_factory() as session:
+            repo = UserRepository(session)
+            user = await repo.get_by_id(user_id)
+            return dict(user.settings or {}) if user else {}
+    except Exception:
+        return {}
 
-async def _run_analysis(message: Message, query: str, mode: str = "full", user_id: int = 0) -> None:
+
+async def _run_analysis(message: Message, query: str, mode: str = "full", lang: str = "ru", user_id: int = 0) -> None:
     from src.agents.graph import build_analysis_graph
     from src.schemas.agent_state import AgentState
     from datetime import datetime, timezone
 
     enabled_modules = _MODE_MODULES.get(mode, _MODE_MODULES["full"])
-
-    progress_msg = await message.answer(_build_progress_text(query, mode))
+    progress_msg = await message.answer(_build_progress_text(query, mode, lang))
 
     resolved_user_id = _resolve_user_id(user_id, message)
+    user_settings = await _load_user_settings(resolved_user_id)
     state = AgentState(
         project_query=query,
         user_id=resolved_user_id,
@@ -231,6 +212,7 @@ async def _run_analysis(message: Message, query: str, mode: str = "full", user_i
         message_id=progress_msg.message_id,
         started_at=datetime.now(timezone.utc).isoformat(),
         enabled_modules=enabled_modules,
+        user_settings=user_settings,
     )
 
     try:
@@ -238,10 +220,9 @@ async def _run_analysis(message: Message, query: str, mode: str = "full", user_i
         final_state = await graph.ainvoke(state.model_dump())
 
         if final_state.get("status") == "failed":
-            errors = '; '.join(html.escape(e) for e in final_state.get('errors', ['Неизвестная ошибка']))
+            errors = '; '.join(html.escape(e) for e in final_state.get('errors', []))
             await progress_msg.edit_text(
-                f"❌ Анализ проекта <b>{html.escape(query)}</b> не удался.\n"
-                f"Ошибки: {errors}"
+                t("analysis_failed", lang, project=html.escape(query), errors=errors)
             )
             return
 
@@ -255,7 +236,7 @@ async def _run_analysis(message: Message, query: str, mode: str = "full", user_i
         for flag in risk_flags[:5]:
             icon = {"red": "🔴", "yellow": "🟡", "green": "🟢"}.get(flag.get("type", ""), "⚪")
             flag_lines.append(f"{icon} {html.escape(flag.get('message', ''))}")
-        flags_text = "\n".join(flag_lines) if flag_lines else "Флагов не найдено"
+        flags_text = "\n".join(flag_lines) if flag_lines else t("no_flags", lang)
 
         coingecko_summary = report.get("coingecko_summary", {}) or {}
         fdv = coingecko_summary.get("fdv_usd")
@@ -264,11 +245,11 @@ async def _run_analysis(message: Message, query: str, mode: str = "full", user_i
 
         investors = report.get("investors", [])
         top_investors = [html.escape(inv.get("name", "")) for inv in investors[:3] if inv.get("name")]
-        investors_line = f"Инвесторы: {', '.join(top_investors)}\n" if top_investors else ""
+        investors_line = t("investors_line", lang, investors=", ".join(top_investors)) if top_investors else ""
 
         sources = html.escape(", ".join(report.get("data_sources", [])[:3]))
 
-        result_text = RESULT_TEMPLATE.format(
+        result_text = t("result_template", lang).format(
             project_name=project_name,
             score=score,
             stars=score_to_stars(score),
@@ -277,16 +258,16 @@ async def _run_analysis(message: Message, query: str, mode: str = "full", user_i
             investors_line=investors_line,
             fdv_line=fdv_line,
             flags=flags_text,
-            sources=sources or "агрегаторы",
+            sources=sources or t("data_sources_fallback", lang),
         )
 
         report_id = report.get("id", 0)
         await progress_msg.edit_text(
             result_text,
-            reply_markup=report_keyboard(project_name=project_name, report_id=report_id),
+            reply_markup=report_keyboard(project_name=project_name, report_id=report_id, lang=lang),
         )
 
     except Exception as e:
         await progress_msg.edit_text(
-            f"❌ Произошла ошибка при анализе <b>{html.escape(query)}</b>:\n<code>{html.escape(str(e))}</code>"
+            t("analysis_error", lang, project=html.escape(query), error=html.escape(str(e)))
         )

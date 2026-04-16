@@ -33,6 +33,10 @@ async def social_node(state: dict) -> dict:
     project_urls = state.get("project_urls", {})
     log.info("social.start", project=project_name)
 
+    user_settings = state.get("user_settings", {}) or {}
+    tweets_count = int(user_settings.get("social_tweets_count", 15))
+    top_posts_count = int(user_settings.get("social_top_posts", 3))
+
     social_data: dict = {}
     errors = list(state.get("errors", []))
 
@@ -84,8 +88,8 @@ async def social_node(state: dict) -> dict:
 
         if twitter_handle:
             profile = await twitter.get_profile(twitter_handle)
-            tweets = await twitter.get_recent_tweets(twitter_handle, count=20)
-            mentions = await twitter.search_mentions(project_name, count=15)
+            tweets = await twitter.get_recent_tweets(twitter_handle, count=tweets_count)
+            mentions = await twitter.search_mentions(project_name, count=max(5, tweets_count // 3))
 
             # Combine tweets for sentiment analysis
             all_tweets = [t.get("text", "") for t in (tweets + mentions)[:50]]
@@ -99,7 +103,7 @@ async def social_node(state: dict) -> dict:
             followers = profile.get("public_metrics", {}).get("followers_count", 0)
             following = profile.get("public_metrics", {}).get("following_count", 1)
 
-            # Calculate engagement rate
+            # Calculate engagement rate and average views
             total_engagement = sum(
                 t.get("public_metrics", {}).get("like_count", 0)
                 + t.get("public_metrics", {}).get("retweet_count", 0)
@@ -107,11 +111,37 @@ async def social_node(state: dict) -> dict:
             )
             engagement_rate = (total_engagement / len(tweets) / max(followers, 1)) if tweets else 0.0
 
+            tweets_with_views = [t for t in tweets if t.get("public_metrics", {}).get("view_count", 0) > 0]
+            avg_views = (
+                sum(t["public_metrics"]["view_count"] for t in tweets_with_views) / len(tweets_with_views)
+                if tweets_with_views else 0
+            )
+
+            # Top-3 posts by combined score: likes + retweets + views/100
+            def _post_score(t: dict) -> float:
+                m = t.get("public_metrics", {})
+                return m.get("like_count", 0) + m.get("retweet_count", 0) + m.get("view_count", 0) / 100
+
+            top_posts = []
+            for t in sorted(tweets, key=_post_score, reverse=True)[:top_posts_count]:
+                if not t.get("url"):
+                    continue
+                m = t.get("public_metrics", {})
+                top_posts.append({
+                    "url": t["url"],
+                    "text": t.get("text", "")[:120],
+                    "likes": m.get("like_count", 0),
+                    "retweets": m.get("retweet_count", 0),
+                    "views": m.get("view_count", 0),
+                })
+
             social_data = {
                 "handle": twitter_handle,
                 "followers_count": followers,
                 "following_count": following,
                 "engagement_rate": round(engagement_rate, 4),
+                "avg_views_per_tweet": round(avg_views),
+                "top_posts": top_posts,
                 "tweet_count": len(tweets),
                 "sentiment_score": sentiment_result.get("sentiment_score", 0.0),
                 "key_concerns": sentiment_result.get("key_concerns", []),
