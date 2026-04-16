@@ -213,6 +213,7 @@ async def _run_analysis(message: Message, query: str, mode: str = "full", lang: 
         started_at=datetime.now(timezone.utc).isoformat(),
         enabled_modules=enabled_modules,
         user_settings=user_settings,
+        lang=lang,
     )
 
     try:

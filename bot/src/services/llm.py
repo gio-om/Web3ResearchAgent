@@ -127,7 +127,7 @@ class LLMService:
         except LLMError:
             return {"error": "parse_failed", "raw": raw[:500]}
 
-    async def analyze_sentiment(self, tweets: list[str], project_name: str) -> dict:
+    async def analyze_sentiment(self, tweets: list[str], project_name: str, lang: str = "ru") -> dict:
         if not tweets:
             return {
                 "sentiment_score": 0.0,
@@ -137,8 +137,17 @@ class LLMService:
                 "overall_assessment": "No tweets available",
             }
 
+        lang_instruction = (
+            "Write all text fields (key_concerns, positive_signals, bot_activity_signals, overall_assessment) in Russian. "
+            "Keep terms like Twitter, Discord, KOL, FDV, MCap, TGE, DeFi, NFT, DAO as-is."
+            if lang == "ru" else
+            "Write all text fields in English. "
+            "Keep terms like Twitter, Discord, KOL, FDV, MCap, TGE, DeFi, NFT, DAO as-is."
+        )
+
         tweets_block = "\n---\n".join(tweets[:40])
         prompt = f"""Analyze sentiment and social signals for crypto project "{project_name}".
+{lang_instruction}
 
 Tweets:
 {tweets_block}
@@ -211,8 +220,18 @@ Content:
         social_data: dict,
         team_data: dict,
         cross_check_results: list,
+        lang: str = "ru",
     ) -> dict:
+        lang_instruction = (
+            "Write summary, strengths, and weaknesses in Russian. "
+            "Keep terms like FDV, MCap, TVL, TGE, Twitter, Discord, GitHub, DAO, DeFi, NFT, KOL, Tier-1 as-is."
+            if lang == "ru" else
+            "Write summary, strengths, and weaknesses in English. "
+            "Keep terms like FDV, MCap, TVL, TGE, Twitter, Discord, GitHub, DAO, DeFi, NFT, KOL, Tier-1 as-is."
+        )
+
         prompt = f"""You are a professional crypto analyst. Evaluate project "{project_name}".
+{lang_instruction}
 
 Aggregator data: {json.dumps(aggregator_data, ensure_ascii=False)[:2500]}
 Documentation: {json.dumps(documentation_data, ensure_ascii=False)[:1500]}
@@ -224,7 +243,7 @@ Return JSON:
 {{
   "overall_score": <integer 0-100>,
   "recommendation": "<DYOR|Interesting|Strong|Avoid>",
-  "summary": "<3-4 sentences in Russian>",
+  "summary": "<3-4 sentences>",
   "strengths": ["<point>"],
   "weaknesses": ["<point>"],
   "tokenomics_score": <0-25>,

@@ -42,6 +42,9 @@ class AgentState(BaseModel):
     # Пользовательские настройки (загружаются из БД перед запуском)
     user_settings: dict = Field(default_factory=dict)
 
+    # Язык ответа LLM ("ru" или "en")
+    lang: str = "ru"
+
     # Метаданные пайплайна
     errors: list[str] = Field(default_factory=list)
     status: str = "pending"            # pending | running | completed | failed

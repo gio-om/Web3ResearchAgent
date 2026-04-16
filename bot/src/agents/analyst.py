@@ -242,6 +242,7 @@ async def analyst_node(state: dict) -> dict:
             social_data=eff_social,
             team_data=eff_team,
             cross_check_results=cross_check_results,
+            lang=state.get("lang", "ru"),
         )
 
         overall_score, sub_scores = _calculate_score(

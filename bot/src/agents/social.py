@@ -98,6 +98,7 @@ async def social_node(state: dict) -> dict:
             sentiment_result = await llm.analyze_sentiment(
                 tweets=all_tweets,
                 project_name=project_name,
+                lang=state.get("lang", "ru"),
             )
 
             followers = profile.get("public_metrics", {}).get("followers_count", 0)
