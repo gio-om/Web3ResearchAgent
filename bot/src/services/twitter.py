@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import re
 from typing import Any
+from urllib.parse import quote
 
 import structlog
 
@@ -503,15 +504,22 @@ class TwitterClient:
             await cache_set(cache_key, tweets, CACHE_TTL)
         return tweets
 
-    async def search_mentions(self, project_name: str, count: int = 30) -> list[dict]:
+    async def search_mentions(
+        self,
+        project_name: str,
+        count: int = 30,
+        twitter_handle: str | None = None,
+    ) -> list[dict]:
         """
-        Load x.com/search?q={project_name}&src=typed_query&f=live and collect
-        the first page of results.
+        Load x.com/search with a crypto-aware query and collect the first page of results.
+
+        If twitter_handle is provided the query combines @handle mentions with a
+        crypto-contextual name search, avoiding false positives from common words.
 
         Returns list in the same shape as get_recent_tweets(), with an extra
         "author_username" key when detectable.
         """
-        cache_key = f"tw:mentions:{project_name.lower()}:{count}"
+        cache_key = f"tw:mentions:{project_name.lower()}:{twitter_handle or ''}:{count}"
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
@@ -522,8 +530,13 @@ class TwitterClient:
             pw, browser = await _launch_browser()
             context, page = await _new_page(browser, self._cookie)
             try:
+                _CRYPTO = "(crypto OR token OR blockchain OR web3 OR defi OR airdrop)"
+                if twitter_handle:
+                    query = f'@{twitter_handle} OR ("{project_name}" {_CRYPTO})'
+                else:
+                    query = f'"{project_name}" {_CRYPTO}'
                 search_url = (
-                    f"{X_BASE}/search?q={project_name.replace(' ', '%20')}"
+                    f"{X_BASE}/search?q={quote(query, safe='')}"
                     f"&src=typed_query&f=live"
                 )
                 await page.goto(search_url, timeout=PAGE_TIMEOUT, wait_until="load")

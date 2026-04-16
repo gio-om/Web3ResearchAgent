@@ -35,6 +35,7 @@ async def social_node(state: dict) -> dict:
 
     user_settings = state.get("user_settings", {}) or {}
     tweets_count = int(user_settings.get("social_tweets_count", 15))
+    mentions_count = int(user_settings.get("social_mentions_count", tweets_count))
     top_posts_count = int(user_settings.get("social_top_posts", 3))
 
     from src.agents.graph import push_step
@@ -93,10 +94,14 @@ async def social_node(state: dict) -> dict:
         if twitter_handle:
             await push_step("social", f"Загружаем профиль @{twitter_handle}...")
             profile = await twitter.get_profile(twitter_handle)
-            await push_step("social", f"Читаем твиты ({tweets_count} постов)...")
+            await push_step("social", f"Читаем твиты с офф. аккаунта ({tweets_count} постов)...")
             tweets = await twitter.get_recent_tweets(twitter_handle, count=tweets_count)
-            await push_step("social", "Ищем упоминания проекта в Twitter...")
-            mentions = await twitter.search_mentions(project_name, count=max(5, tweets_count // 3))
+            await push_step("social", f"Читаем упоминания проекта ({mentions_count} упом.)...")
+            mentions = await twitter.search_mentions(
+                project_name,
+                count=mentions_count,
+                twitter_handle=twitter_handle,
+            )
 
             # Combine tweets for sentiment analysis
             all_tweets = [t.get("text", "") for t in (tweets + mentions)[:50]]

@@ -20,6 +20,7 @@ log = structlog.get_logger()
 
 class SocialSettingsStates(StatesGroup):
     entering_tweets_count = State()
+    entering_mentions_count = State()
     entering_top_posts = State()
 
 
@@ -115,10 +116,11 @@ async def cb_settings_social(callback: CallbackQuery, lang: str = "ru") -> None:
     await callback.answer()
     user_settings = await _load_settings(callback.from_user.id)
     tweets_count = int(user_settings.get("social_tweets_count", 15))
+    mentions_count = int(user_settings.get("social_mentions_count", tweets_count))
     top_posts = int(user_settings.get("social_top_posts", 3))
     await callback.message.edit_text(
-        t("social_settings_menu", lang, tweets_count=tweets_count, top_posts=top_posts),
-        reply_markup=social_settings_keyboard(lang, tweets_count, top_posts),
+        t("social_settings_menu", lang, tweets_count=tweets_count, mentions_count=mentions_count, top_posts=top_posts),
+        reply_markup=social_settings_keyboard(lang, tweets_count, mentions_count, top_posts),
     )
 
 
@@ -136,10 +138,33 @@ async def cb_social_tweets(callback: CallbackQuery, state: FSMContext, lang: str
     n = int(value)
     new_settings = await _save_setting(callback.from_user.id, "social_tweets_count", n)
     await callback.answer(t("social_tweets_saved", lang, n=n))
+    mentions_count = int(new_settings.get("social_mentions_count", n))
     top_posts = int(new_settings.get("social_top_posts", 3))
     await callback.message.edit_text(
-        t("social_settings_menu", lang, tweets_count=n, top_posts=top_posts),
-        reply_markup=social_settings_keyboard(lang, n, top_posts),
+        t("social_settings_menu", lang, tweets_count=n, mentions_count=mentions_count, top_posts=top_posts),
+        reply_markup=social_settings_keyboard(lang, n, mentions_count, top_posts),
+    )
+
+
+@router.callback_query(F.data.startswith("social_mentions:"))
+async def cb_social_mentions(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
+    value = callback.data.split(":")[1]
+    await callback.answer()
+
+    if value == "custom":
+        await state.set_state(SocialSettingsStates.entering_mentions_count)
+        await state.update_data(lang=lang)
+        await callback.message.answer(t("enter_mentions_count", lang))
+        return
+
+    n = int(value)
+    new_settings = await _save_setting(callback.from_user.id, "social_mentions_count", n)
+    await callback.answer(t("social_mentions_saved", lang, n=n))
+    tweets_count = int(new_settings.get("social_tweets_count", 15))
+    top_posts = int(new_settings.get("social_top_posts", 3))
+    await callback.message.edit_text(
+        t("social_settings_menu", lang, tweets_count=tweets_count, mentions_count=n, top_posts=top_posts),
+        reply_markup=social_settings_keyboard(lang, tweets_count, n, top_posts),
     )
 
 
@@ -158,9 +183,10 @@ async def cb_social_top(callback: CallbackQuery, state: FSMContext, lang: str = 
     new_settings = await _save_setting(callback.from_user.id, "social_top_posts", n)
     await callback.answer(t("social_top_saved", lang, n=n))
     tweets_count = int(new_settings.get("social_tweets_count", 15))
+    mentions_count = int(new_settings.get("social_mentions_count", tweets_count))
     await callback.message.edit_text(
-        t("social_settings_menu", lang, tweets_count=tweets_count, top_posts=n),
-        reply_markup=social_settings_keyboard(lang, tweets_count, n),
+        t("social_settings_menu", lang, tweets_count=tweets_count, mentions_count=mentions_count, top_posts=n),
+        reply_markup=social_settings_keyboard(lang, tweets_count, mentions_count, n),
     )
 
 
@@ -179,10 +205,34 @@ async def msg_custom_tweets_count(message: Message, state: FSMContext, lang: str
         return
 
     new_settings = await _save_setting(message.from_user.id, "social_tweets_count", n)
+    mentions_count = int(new_settings.get("social_mentions_count", n))
     top_posts = int(new_settings.get("social_top_posts", 3))
     await message.answer(
-        t("social_settings_menu", stored_lang, tweets_count=n, top_posts=top_posts),
-        reply_markup=social_settings_keyboard(stored_lang, n, top_posts),
+        t("social_settings_menu", stored_lang, tweets_count=n, mentions_count=mentions_count, top_posts=top_posts),
+        reply_markup=social_settings_keyboard(stored_lang, n, mentions_count, top_posts),
+    )
+
+
+@router.message(SocialSettingsStates.entering_mentions_count)
+async def msg_custom_mentions_count(message: Message, state: FSMContext, lang: str = "ru") -> None:
+    fsm_data = await state.get_data()
+    stored_lang = fsm_data.get("lang", lang)
+    await state.clear()
+
+    try:
+        n = int(message.text.strip())
+        if n < 1 or n > 200:
+            raise ValueError
+    except (ValueError, AttributeError):
+        await message.answer(t("invalid_number", stored_lang))
+        return
+
+    new_settings = await _save_setting(message.from_user.id, "social_mentions_count", n)
+    tweets_count = int(new_settings.get("social_tweets_count", 15))
+    top_posts = int(new_settings.get("social_top_posts", 3))
+    await message.answer(
+        t("social_settings_menu", stored_lang, tweets_count=tweets_count, mentions_count=n, top_posts=top_posts),
+        reply_markup=social_settings_keyboard(stored_lang, tweets_count, n, top_posts),
     )
 
 
@@ -202,9 +252,10 @@ async def msg_custom_top_posts(message: Message, state: FSMContext, lang: str = 
 
     new_settings = await _save_setting(message.from_user.id, "social_top_posts", n)
     tweets_count = int(new_settings.get("social_tweets_count", 15))
+    mentions_count = int(new_settings.get("social_mentions_count", tweets_count))
     await message.answer(
-        t("social_settings_menu", stored_lang, tweets_count=tweets_count, top_posts=n),
-        reply_markup=social_settings_keyboard(stored_lang, tweets_count, n),
+        t("social_settings_menu", stored_lang, tweets_count=tweets_count, mentions_count=mentions_count, top_posts=n),
+        reply_markup=social_settings_keyboard(stored_lang, tweets_count, mentions_count, n),
     )
 
 

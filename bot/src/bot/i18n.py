@@ -30,12 +30,15 @@ TEXTS: dict[str, dict[str, str]] = {
         "lang_label": "🇷🇺 Русский",
         "social_settings_menu": (
             "📱 <b>Настройки соцсетей</b>\n\n"
-            "Твитов для анализа: <b>{tweets_count}</b>\n"
+            "Твитов с офф. аккаунта: <b>{tweets_count}</b>\n"
+            "Упоминаний: <b>{mentions_count}</b>\n"
             "Важных постов: <b>{top_posts}</b>"
         ),
         "social_tweets_saved": "✅ Твитов для анализа: {n}",
+        "social_mentions_saved": "✅ Упоминаний для анализа: {n}",
         "social_top_saved": "✅ Важных постов: {n}",
-        "enter_tweets_count": "✏️ Введите количество твитов для анализа (1–200):",
+        "enter_tweets_count": "✏️ Введите количество твитов с офф. аккаунта (1–200):",
+        "enter_mentions_count": "✏️ Введите количество упоминаний для анализа (1–200):",
         "enter_top_posts": "✏️ Введите количество важных постов для отображения (1–20):",
         "invalid_number": "❌ Некорректное значение. Введите целое число.",
         # Main keyboard buttons
@@ -154,12 +157,15 @@ TEXTS: dict[str, dict[str, str]] = {
         "lang_label": "🇬🇧 English",
         "social_settings_menu": (
             "📱 <b>Social media settings</b>\n\n"
-            "Tweets to analyse: <b>{tweets_count}</b>\n"
+            "Official account tweets: <b>{tweets_count}</b>\n"
+            "Mentions: <b>{mentions_count}</b>\n"
             "Top posts to show: <b>{top_posts}</b>"
         ),
         "social_tweets_saved": "✅ Tweets to analyse: {n}",
+        "social_mentions_saved": "✅ Mentions to analyse: {n}",
         "social_top_saved": "✅ Top posts: {n}",
-        "enter_tweets_count": "✏️ Enter the number of tweets to analyse (1–200):",
+        "enter_tweets_count": "✏️ Enter the number of official account tweets to analyse (1–200):",
+        "enter_mentions_count": "✏️ Enter the number of mentions to analyse (1–200):",
         "enter_top_posts": "✏️ Enter the number of top posts to display (1–20):",
         "invalid_number": "❌ Invalid value. Please enter a whole number.",
         # Main keyboard buttons

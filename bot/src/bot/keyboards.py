@@ -51,34 +51,42 @@ def settings_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def social_settings_keyboard(lang: str = "ru", tweets_count: int = 15, top_posts: int = 3) -> InlineKeyboardMarkup:
+def social_settings_keyboard(
+    lang: str = "ru",
+    tweets_count: int = 15,
+    mentions_count: int = 15,
+    top_posts: int = 3,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    _tweet_presets = (10, 20, 50)
-    for n in _tweet_presets:
+    _presets = (10, 20, 50)
+
+    # Row 1: official tweets
+    for n in _presets:
         mark = "✓ " if n == tweets_count else ""
         builder.button(text=f"{mark}{n} твитов" if lang == "ru" else f"{mark}{n} tweets",
                        callback_data=f"social_tweets:{n}")
-    if tweets_count not in _tweet_presets:
-        custom_tweet_label = f"✓ ✏️ {tweets_count}"
-    else:
-        custom_tweet_label = "✏️ Своё" if lang == "ru" else "✏️ Custom"
+    custom_tweet_label = f"✓ ✏️ {tweets_count}" if tweets_count not in _presets else ("✏️ Своё" if lang == "ru" else "✏️ Custom")
     builder.button(text=custom_tweet_label, callback_data="social_tweets:custom")
-    builder.adjust(4)
 
+    # Row 2: mentions
+    for n in _presets:
+        mark = "✓ " if n == mentions_count else ""
+        builder.button(text=f"{mark}{n} упом." if lang == "ru" else f"{mark}{n} ment.",
+                       callback_data=f"social_mentions:{n}")
+    custom_mentions_label = f"✓ ✏️ {mentions_count}" if mentions_count not in _presets else ("✏️ Своё" if lang == "ru" else "✏️ Custom")
+    builder.button(text=custom_mentions_label, callback_data="social_mentions:custom")
+
+    # Row 3: top posts
     _top_presets = (1, 3, 5)
     for n in _top_presets:
         mark = "✓ " if n == top_posts else ""
         builder.button(text=f"{mark}топ-{n}" if lang == "ru" else f"{mark}top-{n}",
                        callback_data=f"social_top:{n}")
-    if top_posts not in _top_presets:
-        custom_top_label = f"✓ ✏️ {top_posts}"
-    else:
-        custom_top_label = "✏️ Своё" if lang == "ru" else "✏️ Custom"
+    custom_top_label = f"✓ ✏️ {top_posts}" if top_posts not in _top_presets else ("✏️ Своё" if lang == "ru" else "✏️ Custom")
     builder.button(text=custom_top_label, callback_data="social_top:custom")
-    builder.adjust(4, 4)
 
     builder.button(text=t("btn_back", lang), callback_data="settings")
-    builder.adjust(4, 4, 1)
+    builder.adjust(4, 4, 4, 1)
     return builder.as_markup()
 
 
