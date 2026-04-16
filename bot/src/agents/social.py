@@ -37,10 +37,13 @@ async def social_node(state: dict) -> dict:
     tweets_count = int(user_settings.get("social_tweets_count", 15))
     top_posts_count = int(user_settings.get("social_top_posts", 3))
 
+    from src.agents.graph import push_step
+
     social_data: dict = {}
     errors = list(state.get("errors", []))
 
     # Resolve social URLs (CryptoRank priority → CoinGecko fallback)
+    await push_step("social", "Ищем ссылки на соцсети проекта...")
     from src.agents.resolve_urls import resolve_project_urls
     project_urls = await resolve_project_urls(project_name, project_urls)
 
@@ -80,6 +83,7 @@ async def social_node(state: dict) -> dict:
             project_urls["twitter"] = f"https://twitter.com/{twitter_handle}" if twitter_handle else clean_url
 
         if not twitter_handle:
+            await push_step("social", "Ищем Twitter-аккаунт проекта...")
             twitter_handle = await twitter.find_project_account(project_name)
 
         # Back-fill project_urls so the URL appears in project_links in the report
@@ -87,14 +91,18 @@ async def social_node(state: dict) -> dict:
             project_urls["twitter"] = f"https://twitter.com/{twitter_handle}"
 
         if twitter_handle:
+            await push_step("social", f"Загружаем профиль @{twitter_handle}...")
             profile = await twitter.get_profile(twitter_handle)
+            await push_step("social", f"Читаем твиты ({tweets_count} постов)...")
             tweets = await twitter.get_recent_tweets(twitter_handle, count=tweets_count)
+            await push_step("social", "Ищем упоминания проекта в Twitter...")
             mentions = await twitter.search_mentions(project_name, count=max(5, tweets_count // 3))
 
             # Combine tweets for sentiment analysis
             all_tweets = [t.get("text", "") for t in (tweets + mentions)[:50]]
             tweets_text = "\n---\n".join(all_tweets[:30])
 
+            await push_step("social", "Анализируем тональность постов с помощью AI...")
             sentiment_result = await llm.analyze_sentiment(
                 tweets=all_tweets,
                 project_name=project_name,

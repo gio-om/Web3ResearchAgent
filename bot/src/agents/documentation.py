@@ -40,6 +40,8 @@ async def documentation_node(state: dict) -> dict:
     project_urls = state.get("project_urls", {})
     log.info("documentation.start", project=project_name)
 
+    from src.agents.graph import push_step
+
     documentation_data: dict = {}
     errors = list(state.get("errors", []))
 
@@ -53,9 +55,11 @@ async def documentation_node(state: dict) -> dict:
         # Discover docs URL if not already known
         docs_url = project_urls.get("docs")
         if not docs_url and project_urls.get("website"):
+            await push_step("documentation", "Ищем страницу документации...")
             docs_url = await scraper.discover_docs_url(project_urls["website"])
 
         if docs_url:
+            await push_step("documentation", "Читаем страницы с токеномикой...")
             pages = await scraper.scrape_tokenomics_pages(docs_url)
 
             # ScrapedPage dataclass → text
@@ -63,6 +67,7 @@ async def documentation_node(state: dict) -> dict:
             combined_text = combined_text[:50_000]
 
             if combined_text.strip():
+                await push_step("documentation", f"Анализируем документацию ({len(pages)} стр.) с AI...")
                 result = await llm.analyze_documentation(
                     task_prompt=DOCUMENTATION_PROMPT.format(text=combined_text),
                 )

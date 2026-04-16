@@ -20,10 +20,63 @@ if TYPE_CHECKING:
 # Set by main.py after bot creation so dispatcher can push live updates
 _bot: "Bot | None" = None
 
+# Shared progress context — written by dispatcher, read by push_step
+_progress: dict = {
+    "chat_id": None,
+    "message_id": None,
+    "project_name": "",
+    "modules": [],
+    "done": set(),
+    "failed": set(),
+    "steps": {},  # agent_name → current sub-step text
+}
+
 
 def set_bot(bot: "Bot") -> None:
     global _bot
     _bot = bot
+
+
+def _build_progress_text() -> str:
+    p = _progress
+    lines = [f"🔍 <b>Анализ проекта: {p['project_name']}</b>\n"]
+    for m in p["modules"]:
+        if m in p["done"]:
+            icon, step = "✅", ""
+        elif m in p["failed"]:
+            icon, step = "❌", ""
+        else:
+            icon = "⏳"
+            step = p["steps"].get(m, "")
+        label = _MODULE_LABEL[m]
+        if step:
+            lines.append(f"{icon} {label}...\n   └ <i>{step}</i>")
+        else:
+            lines.append(f"{icon} {label}...")
+    return "\n".join(lines)
+
+
+async def _do_edit() -> None:
+    if _bot is None:
+        return
+    chat_id = _progress["chat_id"]
+    message_id = _progress["message_id"]
+    if not chat_id or not message_id:
+        return
+    try:
+        await _bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=_build_progress_text(),
+        )
+    except Exception:
+        pass
+
+
+async def push_step(agent_name: str, step_text: str) -> None:
+    """Called by individual agents to report a sub-step; updates the Telegram progress message."""
+    _progress["steps"][agent_name] = step_text
+    await _do_edit()
 
 from src.agents.orchestrator import orchestrator_node
 from src.agents.aggregator import aggregator_node
@@ -58,34 +111,14 @@ _MODULE_LABEL = {
 }
 
 
-async def _edit_progress(state: dict, done: set[str], failed: set[str], modules: list[str]) -> None:
-    """Push a live progress update to the Telegram message (best-effort)."""
-    if _bot is None:
-        return
-    chat_id = state.get("chat_id")
-    message_id = state.get("message_id")
-    project_name = state.get("project_name") or state.get("project_query", "")
-    if not chat_id or not message_id:
-        return
-
-    lines = [f"🔍 <b>Анализ проекта: {project_name}</b>\n"]
-    for m in modules:
-        if m in done:
-            icon = "✅"
-        elif m in failed:
-            icon = "❌"
-        else:
-            icon = "⏳"
-        lines.append(f"{icon} {_MODULE_LABEL[m]}...")
-
-    try:
-        await _bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text="\n".join(lines),
-        )
-    except Exception:
-        pass  # ignore edit errors (e.g. message not modified)
+async def _edit_progress(done: set[str], failed: set[str]) -> None:
+    """Rebuild and push progress message after an agent finishes."""
+    _progress["done"] = done
+    _progress["failed"] = failed
+    # Clear sub-step for finished agents
+    for name in done | failed:
+        _progress["steps"].pop(name, None)
+    await _do_edit()
 
 
 async def dispatcher_node(state: dict) -> dict:
@@ -97,6 +130,15 @@ async def dispatcher_node(state: dict) -> dict:
     """
     enabled = state.get("enabled_modules", _ALL_MODULES)
     log.info("dispatcher.start", project=state.get("project_name", ""), modules=enabled)
+
+    # Initialise shared progress context for this run
+    _progress["chat_id"] = state.get("chat_id")
+    _progress["message_id"] = state.get("message_id")
+    _progress["project_name"] = state.get("project_name") or state.get("project_query", "")
+    _progress["modules"] = [m for m in _ALL_MODULES if m in enabled]
+    _progress["done"] = set()
+    _progress["failed"] = set()
+    _progress["steps"] = {}
 
     # Wrap each agent: returns (index, result_or_exception)
     async def _run_agent(index: int, agent_name: str):
@@ -111,7 +153,6 @@ async def dispatcher_node(state: dict) -> dict:
             return index, exc
 
     active_indices = [i for i, n in enumerate(_ALL_MODULES) if n in enabled]
-    enabled_list = [_ALL_MODULES[i] for i in active_indices]
     tasks = [_run_agent(i, _ALL_MODULES[i]) for i in active_indices]
 
     merged = dict(state)
@@ -143,7 +184,7 @@ async def dispatcher_node(state: dict) -> dict:
                         current_urls[k] = v
                 merged["project_urls"] = current_urls
 
-        await _edit_progress(state, done_names, failed_names, enabled_list)
+        await _edit_progress(done_names, failed_names)
 
     merged["errors"] = merged_errors
     log.info("dispatcher.done", project=state.get("project_name", ""), errors=len(merged_errors))

@@ -26,11 +26,14 @@ async def team_node(state: dict) -> dict:
     project_urls = state.get("project_urls", {})
     log.info("team.start", project=project_name)
 
+    from src.agents.graph import push_step
+
     team_data: dict = {"members": [], "flags": []}
     errors = list(state.get("errors", []))
 
     # Resolve project URLs if not already populated (team mode runs without aggregator)
     if not project_urls.get("website") and not project_urls.get("twitter"):
+        await push_step("team", "Ищем сайт проекта...")
         from src.agents.resolve_urls import resolve_project_urls
         project_urls = await resolve_project_urls(project_name, project_urls)
 
@@ -46,14 +49,17 @@ async def team_node(state: dict) -> dict:
         team_content = ""
 
         if website:
+            await push_step("team", "Ищем страницу команды на сайте...")
             team_page_url = await scraper.find_team_page(website)
 
         if team_page_url:
+            await push_step("team", "Читаем информацию об участниках команды...")
             page = await scraper.scrape_page(team_page_url)
             if page and page.text_content:
                 team_content = page.text_content[:20_000]
 
         if team_content:
+            await push_step("team", f"Верифицируем команду через AI...")
             members_raw = await llm.extract_team_members(team_content)
 
             verified_members = []

@@ -19,6 +19,8 @@ async def aggregator_node(state: dict) -> dict:
     project_slug = state.get("project_slug", "")
     log.info("aggregator.start", project=project_name)
 
+    from src.agents.graph import push_step
+
     aggregator_data: dict = {}
     errors = list(state.get("errors", []))
 
@@ -26,10 +28,12 @@ async def aggregator_node(state: dict) -> dict:
         from src.services.cryptorank import CryptoRankClient
         client = CryptoRankClient()
 
+        await push_step("aggregator", "Ищем проект в CryptoRank...")
         project = await client.search_project(project_name)
         if project:
             project_id = project.get("id") or project.get("slug")
             if project_id:
+                await push_step("aggregator", "Загружаем данные: раунды финансирования, вестинг...")
                 details = await client.get_project_details(str(project_id))
                 funding = await client.get_funding_rounds(str(project_id))
                 vesting = await client.get_token_vesting(str(project_id))
@@ -54,6 +58,7 @@ async def aggregator_node(state: dict) -> dict:
 
     try:
         from src.services.coingecko import CoinGeckoClient, CoinGeckoError
+        await push_step("aggregator", "Запрашиваем цены и капитализацию в CoinGecko...")
         cg = CoinGeckoClient()
         coin_data = await cg.get_coin_by_name(project_name)
         if coin_data:
