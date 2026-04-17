@@ -231,41 +231,19 @@ class CryptoRankClient:
 
     async def _search_by_query(self, name: str) -> dict | None:
         """
-        Search via GET /v0/coins?search=NAME.
-        Returns the best-ranked (most popular) match, or None.
+        Search via GET /v0/global-search?query=NAME — same endpoint as the CryptoRank website.
+        Takes the first cryptoasset result (highest relevance per CryptoRank's own ranking).
         """
-        data = await _api_get("/v0/coins", params={"search": name, "limit": 10})
-        if not data:
+        data = await _api_get("/v0/global-search", params={"query": name, "locale": "en", "limit": 5})
+        if not data or not isinstance(data, dict):
             return None
-        items = None
-        if isinstance(data, list):
-            items = data
-        elif isinstance(data, dict):
-            items = data.get("data") or data.get("coins") or []
+
+        items = (data.get("cryptoassets") or {}).get("data") or []
         if not items:
             return None
 
-        name_lower = name.lower()
-        exact: list = []
-        partial: list = []
-        for item in items:
-            sym = (item.get("symbol") or "").lower()
-            nm = (item.get("name") or "").lower()
-            if sym == name_lower or nm == name_lower:
-                exact.append(item)
-            elif name_lower in nm or nm in name_lower:
-                partial.append(item)
-
-        def _rank_key(item: dict) -> int:
-            return item.get("rank") or 999_999
-
-        # Exact matches first, then partial — each group sorted by rank ascending
-        candidates = sorted(exact, key=_rank_key) + sorted(partial, key=_rank_key)
-        if not candidates:
-            return None
-
-        chosen = candidates[0]
-        key = chosen.get("key") or chosen.get("slug") or chosen.get("id")
+        chosen = items[0]
+        key = chosen.get("key") or chosen.get("slug") or str(chosen.get("id", ""))
         if not key:
             return None
 
@@ -276,12 +254,12 @@ class CryptoRankClient:
         result = {
             "id": key,
             "slug": key,
-            "name": coin.get("name", name),
-            "symbol": coin.get("symbol", ""),
+            "name": coin.get("name", chosen.get("name", name)),
+            "symbol": coin.get("symbol", chosen.get("symbol", "")),
             "rank": coin.get("rank") or chosen.get("rank"),
             **links,
         }
-        log.info("cryptorank.search.found_via_query", name=name, slug=key, rank=result.get("rank"))
+        log.info("cryptorank.search.found_via_global", name=name, slug=key, rank=result.get("rank"))
         return result
 
     async def _slug_lookup(self, name: str) -> dict | None:

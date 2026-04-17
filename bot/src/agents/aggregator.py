@@ -51,7 +51,9 @@ async def aggregator_node(state: dict) -> dict:
                 for key, val in details.items():
                     if key not in _non_link_keys and val and not state_urls.get(key):
                         state_urls[key] = _clean_url(str(val))
-                state = {**state, "project_urls": state_urls}
+                # Always set the resolved CryptoRank URL and slug (e.g. "opinion-labs" not "opinion")
+                state_urls["cryptorank"] = f"https://cryptorank.io/price/{project_id}"
+                state = {**state, "project_urls": state_urls, "project_slug": project_id}
     except Exception as e:
         log.warning("aggregator.cryptorank_failed", error=str(e))
         errors.append(f"CryptoRank: {e}")
