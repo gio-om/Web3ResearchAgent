@@ -206,6 +206,9 @@ async def analyst_node(state: dict) -> dict:
     enabled_modules: list[str] = state.get("enabled_modules", ["aggregator", "documentation", "social", "team"])
     log.info("analyst.start", project=project_name, modules=enabled_modules)
 
+    from src.agents.graph import push_forming_report
+    await push_forming_report()
+
     aggregator_data = state.get("aggregator_data", {}) or {}
     documentation_data = state.get("documentation_data", {}) or {}
     social_data = state.get("social_data", {}) or {}

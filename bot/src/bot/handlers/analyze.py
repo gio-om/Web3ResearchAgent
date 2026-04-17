@@ -214,6 +214,7 @@ async def _run_analysis(message: Message, query: str, mode: str = "full", lang: 
         enabled_modules=enabled_modules,
         user_settings=user_settings,
         lang=lang,
+        skip_cryptorank=(mode == "market"),
     )
 
     try:

@@ -45,6 +45,9 @@ class AgentState(BaseModel):
     # Язык ответа LLM ("ru" или "en")
     lang: str = "ru"
 
+    # Пропустить запрос к CryptoRank в aggregator (только CoinGecko)
+    skip_cryptorank: bool = False
+
     # Метаданные пайплайна
     errors: list[str] = Field(default_factory=list)
     status: str = "pending"            # pending | running | completed | failed

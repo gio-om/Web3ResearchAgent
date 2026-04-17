@@ -29,6 +29,7 @@ _progress: dict = {
     "done": set(),
     "failed": set(),
     "steps": {},  # agent_name → current sub-step text
+    "forming_report": False,
 }
 
 
@@ -53,6 +54,8 @@ def _build_progress_text() -> str:
             lines.append(f"{icon} {label}...\n   └ <i>{step}</i>")
         else:
             lines.append(f"{icon} {label}...")
+    if p.get("forming_report"):
+        lines.append("\n📝 <i>Формируем отчёт...</i>")
     return "\n".join(lines)
 
 
@@ -76,6 +79,13 @@ async def _do_edit() -> None:
 async def push_step(agent_name: str, step_text: str) -> None:
     """Called by individual agents to report a sub-step; updates the Telegram progress message."""
     _progress["steps"][agent_name] = step_text
+    await _do_edit()
+
+
+async def push_forming_report() -> None:
+    """Show 'forming report' status after 1s pause (called at start of analyst node)."""
+    await asyncio.sleep(1)
+    _progress["forming_report"] = True
     await _do_edit()
 
 from src.agents.orchestrator import orchestrator_node
@@ -139,6 +149,7 @@ async def dispatcher_node(state: dict) -> dict:
     _progress["done"] = set()
     _progress["failed"] = set()
     _progress["steps"] = {}
+    _progress["forming_report"] = False
 
     # Wrap each agent: returns (index, result_or_exception)
     async def _run_agent(index: int, agent_name: str):
