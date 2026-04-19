@@ -63,8 +63,8 @@ def _build_tokenomics(documentation_data: dict, cr_vesting) -> dict:
 def _build_funding_rounds(funding_rounds: list) -> list[dict]:
     """
     Convert CryptoRank funding round format to mini-app FundingRound format.
-    CryptoRank: {round_type, date, amount_usd, valuation_usd, investors, ...}
-    Mini-app:   {round_name, date, amount_usd, valuation_usd}
+    CryptoRank: {round_type, date, amount_usd, valuation_usd, investors, announcement, ...}
+    Mini-app:   {round_name, date, amount_usd, valuation_usd, investors, announcement}
     """
     result = []
     for r in funding_rounds or []:
@@ -73,6 +73,8 @@ def _build_funding_rounds(funding_rounds: list) -> list[dict]:
             "date": r.get("date"),
             "amount_usd": r.get("amount_usd"),
             "valuation_usd": r.get("valuation_usd"),
+            "investors": r.get("investors", []),
+            "announcement": r.get("announcement"),
         })
     return result
 

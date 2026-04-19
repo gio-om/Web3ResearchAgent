@@ -29,6 +29,8 @@ export interface FundingRound {
   amount_usd: number | null;
   date: string | null;
   valuation_usd: number | null;
+  investors?: string[];
+  announcement?: string | null;
 }
 
 export interface InvestorInfo {
