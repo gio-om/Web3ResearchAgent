@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { InvestorInfo, FundingRound } from "../types";
+import type { InvestorInfo, InvestorChip, FundingRound } from "../types";
 import { formatUsd } from "../utils/format";
 
 interface FundsListProps {
@@ -32,6 +32,29 @@ function formatDate(d: string | null): string {
 }
 
 const VISIBLE_INVESTORS = 4;
+const PAGE_SIZE = 10;
+
+function InvestorAvatar({ inv, size = 8 }: { inv: InvestorChip; size?: number }) {
+  const sz = `w-${size} h-${size}`;
+  if (inv.logo) {
+    return (
+      <img
+        src={inv.logo}
+        alt={inv.name}
+        className={`${sz} rounded-full object-cover bg-gray-100 shrink-0`}
+        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+      />
+    );
+  }
+  return (
+    <div
+      className={`${sz} rounded-full flex items-center justify-center text-white shrink-0`}
+      style={{ backgroundColor: avatarColor(inv.name), fontSize: size <= 6 ? 8 : 10, fontWeight: 700 }}
+    >
+      {initials(inv.name)}
+    </div>
+  );
+}
 
 interface InvestorModalProps {
   round: FundingRound;
@@ -70,15 +93,10 @@ function InvestorModal({ round, onClose }: InvestorModalProps) {
           All Investors ({investors.length})
         </p>
         <div className="space-y-2">
-          {investors.map((name, i) => (
+          {investors.map((inv, i) => (
             <div key={i} className="flex items-center gap-2.5">
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                style={{ backgroundColor: avatarColor(name) }}
-              >
-                {initials(name)}
-              </div>
-              <span className="text-sm text-gray-800">{name}</span>
+              <InvestorAvatar inv={inv} size={8} />
+              <span className="text-sm text-gray-800">{inv.name}</span>
             </div>
           ))}
         </div>
@@ -117,16 +135,18 @@ function RoundCard({ round }: RoundCardProps) {
               </a>
             )}
           </div>
-          <div className="flex items-center gap-3 shrink-0 text-xs">
+          <div className="flex items-center gap-3 shrink-0">
             {round.amount_usd != null && (
-              <span className="text-gray-500">
-                Raised <span className="font-semibold text-gray-800">{formatUsd(round.amount_usd)}</span>
-              </span>
+              <div className="text-right">
+                <div className="text-[10px] text-gray-400 leading-none mb-0.5">Raised</div>
+                <div className="text-sm font-bold text-gray-900">{formatUsd(round.amount_usd)}</div>
+              </div>
             )}
             {round.valuation_usd != null && (
-              <span className="text-gray-500">
-                Val. <span className="font-semibold text-gray-800">{formatUsd(round.valuation_usd)}</span>
-              </span>
+              <div className="text-right">
+                <div className="text-[10px] text-gray-400 leading-none mb-0.5">Valuation</div>
+                <div className="text-sm font-bold text-gray-900">{formatUsd(round.valuation_usd)}</div>
+              </div>
             )}
           </div>
         </div>
@@ -135,15 +155,10 @@ function RoundCard({ round }: RoundCardProps) {
         {investors.length > 0 ? (
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-xs text-gray-400 mr-0.5">Investors:</span>
-            {visible.map((name, i) => (
+            {visible.map((inv, i) => (
               <div key={i} className="flex items-center gap-1 bg-gray-50 rounded-full pl-1 pr-2.5 py-0.5">
-                <div
-                  className="w-5 h-5 rounded-full flex items-center justify-center text-white shrink-0"
-                  style={{ backgroundColor: avatarColor(name), fontSize: 8, fontWeight: 700 }}
-                >
-                  {initials(name)}
-                </div>
-                <span className="text-xs text-gray-700 max-w-[90px] truncate">{name}</span>
+                <InvestorAvatar inv={inv} size={5} />
+                <span className="text-xs text-gray-700 max-w-[90px] truncate">{inv.name}</span>
               </div>
             ))}
             {extra > 0 && (
@@ -165,6 +180,106 @@ function RoundCard({ round }: RoundCardProps) {
   );
 }
 
+function InvestorTable({ investors }: { investors: InvestorInfo[] }) {
+  const [page, setPage] = useState(0);
+  const totalPages = Math.ceil(investors.length / PAGE_SIZE);
+  const slice = investors.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+  const from = page * PAGE_SIZE + 1;
+  const to = Math.min(page * PAGE_SIZE + PAGE_SIZE, investors.length);
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+      {/* Table header */}
+      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-4 py-2.5 border-b border-gray-100">
+        <span className="text-xs font-semibold text-gray-400">Name</span>
+        <span className="text-xs font-semibold text-gray-400 text-center w-8">Tier</span>
+        <span className="text-xs font-semibold text-gray-400 w-20">Type</span>
+        <span className="text-xs font-semibold text-gray-400 w-24">Stage</span>
+      </div>
+
+      {/* Rows */}
+      <div className="divide-y divide-gray-50">
+        {slice.map((inv, i) => (
+          <div key={i} className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-4 py-3 items-center">
+            {/* Name + avatar */}
+            <div className="flex items-center gap-2 min-w-0">
+              <InvestorAvatar inv={{ name: inv.name, logo: inv.logo }} size={7} />
+              <span className="text-sm text-gray-800 truncate">{inv.name}</span>
+              {inv.is_lead && (
+                <span className="text-[10px] font-semibold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded shrink-0">
+                  Lead
+                </span>
+              )}
+            </div>
+
+            {/* Tier */}
+            <span className="text-sm text-gray-600 text-center w-8">
+              {inv.tier ?? "—"}
+            </span>
+
+            {/* Type / category */}
+            <span className="text-sm text-gray-600 w-20 truncate capitalize">
+              {inv.category ?? "—"}
+            </span>
+
+            {/* Stages */}
+            <div className="flex flex-wrap gap-1 w-24">
+              {(inv.stages && inv.stages.length > 0)
+                ? inv.stages.map((s, j) => (
+                    <span key={j} className="text-[10px] bg-gray-100 text-gray-600 rounded px-1.5 py-0.5 whitespace-nowrap">
+                      {s}
+                    </span>
+                  ))
+                : inv.round
+                  ? <span className="text-[10px] bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">{inv.round}</span>
+                  : <span className="text-xs text-gray-300">—</span>
+              }
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+          <span className="text-xs text-gray-400">
+            {from} – {to} from {investors.length}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="w-7 h-7 flex items-center justify-center rounded text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-sm"
+            >
+              ‹
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => (
+              <button
+                key={i}
+                onClick={() => setPage(i)}
+                className={`w-7 h-7 flex items-center justify-center rounded text-xs font-medium transition-colors ${
+                  i === page
+                    ? "bg-indigo-500 text-white"
+                    : "text-gray-500 hover:bg-gray-100"
+                }`}
+              >
+                {i + 1}
+              </button>
+            ))}
+            <button
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={page === totalPages - 1}
+              className="w-7 h-7 flex items-center justify-center rounded text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-sm"
+            >
+              ›
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function FundsList({ investors, fundingRounds }: FundsListProps) {
   if (fundingRounds.length === 0 && investors.length === 0) {
     return (
@@ -174,32 +289,31 @@ export default function FundsList({ investors, fundingRounds }: FundsListProps) 
     );
   }
 
+  const totalRaised = fundingRounds.reduce(
+    (sum, r) => (r.amount_usd != null ? sum + r.amount_usd : sum),
+    0,
+  );
+
   return (
     <div className="space-y-3">
       {fundingRounds.length > 0 && (
-        <div className="space-y-2">
-          {fundingRounds.map((r, i) => (
-            <RoundCard key={i} round={r} />
-          ))}
-        </div>
+        <>
+          {totalRaised > 0 && (
+            <div className="flex items-center justify-between bg-white rounded-xl px-4 py-3 shadow-sm">
+              <span className="text-sm text-gray-500">Total Raised</span>
+              <span className="text-base font-bold text-gray-900">{formatUsd(totalRaised)}</span>
+            </div>
+          )}
+          <div className="space-y-2">
+            {fundingRounds.map((r, i) => (
+              <RoundCard key={i} round={r} />
+            ))}
+          </div>
+        </>
       )}
 
-      {/* Fallback investor list if no per-round data */}
-      {fundingRounds.length === 0 && investors.length > 0 && (
-        <div className="bg-white rounded-xl p-4 shadow-sm space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Investors</p>
-          {investors.map((inv, i) => (
-            <div key={i} className="flex items-center gap-2.5">
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                style={{ backgroundColor: avatarColor(inv.name) }}
-              >
-                {initials(inv.name)}
-              </div>
-              <span className="text-sm text-gray-800">{inv.name}</span>
-            </div>
-          ))}
-        </div>
+      {investors.length > 0 && (
+        <InvestorTable investors={investors} />
       )}
     </div>
   );

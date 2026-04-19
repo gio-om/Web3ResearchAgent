@@ -1,6 +1,7 @@
 """
 Aggregator agent: fetches quantitative data from Cryptorank and CoinGecko.
 """
+import asyncio
 import structlog
 
 def _clean_url(url: str) -> str:
@@ -37,14 +38,20 @@ async def aggregator_node(state: dict) -> dict:
                 project_id = project.get("id") or project.get("slug")
                 if project_id:
                     await push_step("aggregator", "Загружаем данные: раунды финансирования, вестинг...")
-                    details = await client.get_project_details(str(project_id))
-                    funding = await client.get_funding_rounds(str(project_id))
-                    vesting = await client.get_token_vesting(str(project_id))
+                    details, funding, investors_list, vesting = await asyncio.gather(
+                        client.get_project_details(str(project_id)),
+                        client.get_funding_rounds(str(project_id)),
+                        client.get_investors_list(str(project_id)),
+                        client.get_token_vesting(str(project_id)),
+                    )
                     aggregator_data["cryptorank"] = {
                         "project": details,
                         "funding_rounds": funding,
+                        "investors_list": investors_list,
                         "vesting": vesting,
                     }
+                    if client.limit_reached:
+                        state = {**state, "cr_limit_reached": True}
                     # Back-fill project URLs from CryptoRank (all link types, highest priority)
                     state_urls = dict(state.get("project_urls", {}))
                     _non_link_keys = {"key", "name", "symbol", "category", "total_supply",

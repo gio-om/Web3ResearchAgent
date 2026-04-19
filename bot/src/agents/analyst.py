@@ -79,14 +79,40 @@ def _build_funding_rounds(funding_rounds: list) -> list[dict]:
     return result
 
 
-def _build_investor_list(funding_rounds: list) -> list[dict]:
-    """Deduplicate and rank investors across all funding rounds."""
+def _build_investor_list(investors_list: list, funding_rounds: list) -> list[dict]:
+    """
+    Build deduplicated investor list.
+    Prefers investors_list (has logos + tiers) from /investors-list endpoint;
+    falls back to extracting from funding_rounds if investors_list is empty.
+    """
+    if investors_list:
+        return [
+            {
+                "name": inv.get("name", ""),
+                "logo": inv.get("logo"),
+                "tier": str(inv["tier"]) if inv.get("tier") is not None else None,
+                "round": (inv.get("stage") or [""])[0],
+                "stages": inv.get("stage") or [],
+                "category": inv.get("category"),
+                "is_lead": inv.get("is_lead", False),
+                "portfolio_notable": [],
+            }
+            for inv in investors_list
+            if inv.get("name")
+        ]
+    # fallback: extract from per-round investor lists
     seen: dict[str, dict] = {}
     for r in funding_rounds or []:
         round_type = r.get("round_type", "")
-        for name in r.get("investors", []):
-            if isinstance(name, str) and name and name not in seen:
-                seen[name] = {"name": name, "round": round_type}
+        for inv in r.get("investors", []):
+            if isinstance(inv, str):
+                name, logo = inv, None
+            elif isinstance(inv, dict):
+                name, logo = inv.get("name", ""), inv.get("logo")
+            else:
+                continue
+            if name and name not in seen:
+                seen[name] = {"name": name, "logo": logo, "round": round_type, "portfolio_notable": []}
     return list(seen.values())
 
 
@@ -229,7 +255,13 @@ async def analyst_node(state: dict) -> dict:
     documentation_data = state.get("documentation_data", {}) or {}
     social_data = state.get("social_data", {}) or {}
     team_data = state.get("team_data", {}) or {}
-    cross_check_results = state.get("cross_check_results", [])
+    cross_check_results = list(state.get("cross_check_results", []))
+    if state.get("cr_limit_reached"):
+        cross_check_results.append({
+            "type": "yellow",
+            "category": "Data",
+            "message": "Дневной лимит CryptoRank исчерпан — данные по инвесторам/раундам могут быть неполными",
+        })
     errors = list(state.get("errors", []))
     coingecko = aggregator_data.get("coingecko", {}) or {}
     cr = (aggregator_data.get("cryptorank", {}) or {})
@@ -338,7 +370,10 @@ async def analyst_node(state: dict) -> dict:
                 "market_cap_usd": coingecko.get("market_cap_usd"),
             }
             report["funding_rounds"] = _build_funding_rounds(cr.get("funding_rounds", []))
-            report["investors"] = _build_investor_list(cr.get("funding_rounds", []))
+            report["investors"] = _build_investor_list(
+                cr.get("investors_list", []),
+                cr.get("funding_rounds", []),
+            )
 
         # If aggregator didn't run, try to use CoinGecko data fetched by social node
         if "coingecko_summary" not in report:

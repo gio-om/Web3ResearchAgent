@@ -55,7 +55,7 @@ TEXTS: dict[str, dict[str, str]] = {
         # Analysis type keyboard buttons
         "btn_full_analysis": "🔄 Полный анализ",
         "btn_market_data": "📊 Рыночные данные",
-        "btn_docs": "📄 Токеномика и Инвесторы",
+        "btn_docs": "📄 Фандрейзинг и Токеномика",
         "btn_social": "📱 Соцсети",
         "btn_team": "👥 Команда",
         "btn_cancel": "❌ Отмена",
@@ -101,7 +101,7 @@ TEXTS: dict[str, dict[str, str]] = {
         # Analysis mode labels (used in keyboards and progress)
         "mode_full": "Полный анализ",
         "mode_market": "Рыночные данные",
-        "mode_docs": "Токеномика и Инвесторы",
+        "mode_docs": "Фандрейзинг и Токеномика",
         "mode_social": "Соцсети",
         "mode_team": "Команда",
         # Module labels (progress message)
@@ -182,7 +182,7 @@ TEXTS: dict[str, dict[str, str]] = {
         # Analysis type keyboard buttons
         "btn_full_analysis": "🔄 Full analysis",
         "btn_market_data": "📊 Market data",
-        "btn_docs": "📄 Documentation / tokenomics",
+        "btn_docs": "📄 Fundraising & Tokenomics",
         "btn_social": "📱 Social media",
         "btn_team": "👥 Team",
         "btn_cancel": "❌ Cancel",
@@ -228,7 +228,7 @@ TEXTS: dict[str, dict[str, str]] = {
         # Analysis mode labels
         "mode_full": "Full analysis",
         "mode_market": "Market data",
-        "mode_docs": "Documentation / tokenomics",
+        "mode_docs": "Fundraising & Tokenomics",
         "mode_social": "Social media",
         "mode_team": "Team",
         # Module labels

@@ -81,7 +81,8 @@ async def cross_check_node(state: dict) -> dict:
     for round_data in funding_rounds:
         investors = round_data.get("investors", []) if isinstance(round_data, dict) else []
         for investor in investors:
-            investor_lower = investor.lower()
+            inv_name = investor if isinstance(investor, str) else investor.get("name", "")
+            investor_lower = inv_name.lower()
             if investor_lower not in kol_text and len(investors) > 0:
                 # Investor mentioned but not confirmed via social
                 pass  # This is expected — not all investors tweet about deals

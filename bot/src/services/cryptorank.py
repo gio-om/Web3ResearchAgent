@@ -193,33 +193,34 @@ def _map_round_type(raw: str) -> str:
     return _ROUND_TYPE_MAP.get(raw.upper() if raw else "", raw or "Unknown")
 
 
-def _extract_investor_names(investors) -> list[str]:
+def _extract_investors(investors) -> list[dict]:
     """
-    Extract investor names from funding round investor objects.
+    Extract investor {name, logo} from funding round investor objects.
 
-    Handles two formats from different endpoints:
-      - flat list: [{name: ..., type: LEAD/NORMAL}, ...]
-      - tiered dict: {tier1: [...], tier2: [...], tier3: [...]}
+    Handles two formats:
+      - tiered dict: {tier1/tier2/.../tier5/angel/other: [{name, logo, ...}]}
+      - flat list:   [{name, logo/image, ...}]
     """
-    names = []
+    result: list[dict] = []
+    seen: set[str] = set()
+
     if isinstance(investors, dict):
-        # /v0/app/coins/{slug}/token-sales/exclusive/limited format
-        all_invs = (
-            investors.get("tier1", [])
-            + investors.get("tier2", [])
-            + investors.get("tier3", [])
-        )
+        all_invs: list = []
+        for key in ("tier1", "tier2", "tier3", "tier4", "tier5", "angel", "other"):
+            all_invs.extend(investors.get(key) or [])
         for inv in all_invs:
             name = inv.get("name") or inv.get("slug", "")
-            if name:
-                names.append(name)
+            if name and name not in seen:
+                seen.add(name)
+                result.append({"name": name, "logo": inv.get("logo")})
     elif isinstance(investors, list):
-        # /v0/funding-rounds/with-investors/by-coin-key/{slug} format
         for inv in investors:
             name = inv.get("name") or inv.get("slug", "")
-            if name:
-                names.append(name)
-    return names
+            if name and name not in seen:
+                seen.add(name)
+                result.append({"name": name, "logo": inv.get("logo") or inv.get("image")})
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +229,9 @@ def _extract_investor_names(investors) -> list[str]:
 
 class CryptoRankClient:
     """Direct JSON API client for api.cryptorank.io using Bearer token auth."""
+
+    def __init__(self) -> None:
+        self.limit_reached: bool = False
 
     async def _search_by_query(self, name: str) -> dict | None:
         """
@@ -375,39 +379,41 @@ class CryptoRankClient:
 
     async def get_funding_rounds(self, project_id: str) -> list[dict]:
         """
-        Get all funding rounds with named investors.
+        Get all funding rounds with investors (name + logo).
 
-        Uses two endpoints discovered via DevTools:
-          1. /v0/funding-rounds/with-investors/by-coin-key/{slug}
-             → VC rounds (Seed, Series A/B/C, Strategic, etc.) with full investor list
-          2. /v0/app/coins/{slug}/token-sales/exclusive/limited?sortBy=Date
-             → Token sales (IDO, IEO, Public Sale, Private Sale)
-
+        Endpoint: GET /v0/app/coins/{slug}/token-sales/exclusive/limited?sortBy=Date
         Returns list of:
-            {round_type, date, amount_usd, valuation_usd, token_price, investors}
+            {round_type, date, amount_usd, valuation_usd, token_price, investors, announcement}
+        where investors = [{name, logo}]
         """
-        cache_key = f"cr:funding:{project_id}"
+        cache_key = f"cr:funding2:{project_id}"
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
 
         rounds: list[dict] = []
-        seen_keys: set[str] = set()  # dedup by (type, date)
+        seen_keys: set[str] = set()
 
-        def _add_round(r: dict, price_field: bool = False) -> None:
+        sales_data = await _api_get(
+            f"/v0/app/coins/{project_id}/token-sales/exclusive/limited",
+            params={"sortBy": "Date"},
+        )
+
+        if isinstance(sales_data, dict) and sales_data.get("blocked") == "limit_reached":
+            log.warning("cryptorank.limit_reached", endpoint="token-sales", slug=project_id)
+            self.limit_reached = True
+
+        for r in (sales_data or {}).get("rounds", []) if isinstance(sales_data, dict) else []:
             raise_val = r.get("raise")
             amount = _safe_float(raise_val.get("USD") if isinstance(raise_val, dict) else raise_val)
-
-            token_price = None
-            if price_field:
-                price = r.get("price")
-                token_price = _safe_float(price.get("USD") if isinstance(price, dict) else price)
+            price = r.get("price") or r.get("price_usd")
+            token_price = _safe_float(price.get("USD") if isinstance(price, dict) else price)
 
             rtype = _map_round_type(r.get("type", "Unknown"))
             date = _parse_date(r.get("date") or r.get("start"))
             key = f"{rtype}:{date}"
             if key in seen_keys:
-                return
+                continue
             seen_keys.add(key)
 
             rounds.append({
@@ -416,38 +422,58 @@ class CryptoRankClient:
                 "amount_usd": amount,
                 "valuation_usd": _safe_float(r.get("valuation")),
                 "token_price": token_price,
-                "investors": _extract_investor_names(r.get("investors", [])),
-                "announcement": r.get("linkToAnnouncement", ""),
+                "investors": _extract_investors(r.get("investors") or []),
+                "announcement": r.get("linkToAnnouncement") or "",
             })
 
-        # Fetch both endpoints concurrently — they're independent.
-        # Primary: token-sales — ALL rounds (VC + IDO/IEO), investors as {tier1/tier2/tier3}
-        # Supplement: funding-rounds/with-investors — flat investor list, may add missing rounds
-        sales_data, vc_data = await asyncio.gather(
-            _api_get(
-                f"/v0/app/coins/{project_id}/token-sales/exclusive/limited",
-                params={"sortBy": "Date"},
-            ),
-            _api_get(f"/v0/funding-rounds/with-investors/by-coin-key/{project_id}"),
-        )
-
-        if sales_data:
-            items = sales_data.get("rounds", []) if isinstance(sales_data, dict) else sales_data
-            for r in items or []:
-                _add_round(r, price_field=True)
-
-        if vc_data:
-            items = vc_data if isinstance(vc_data, list) else vc_data.get("data", [])
-            for r in items or []:
-                _add_round(r, price_field=False)
-
-        # Sort by date descending, drop empty placeholders
         rounds = [r for r in rounds if r["date"] or r["amount_usd"]]
         rounds.sort(key=lambda r: r["date"] or "", reverse=True)
 
         log.info("cryptorank.funding.done", slug=project_id, count=len(rounds))
         await cache_set(cache_key, rounds, ttl=3600)
         return rounds
+
+    async def get_investors_list(self, project_id: str) -> list[dict]:
+        """
+        Get flat list of all investors for a project with logos and tier info.
+
+        Endpoint: GET /v0/coins/{slug}/investors-list/exclusive/limited
+        Returns list of:
+            {name, logo, tier, category, is_lead, stage}
+        """
+        cache_key = f"cr:investors:{project_id}"
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        data = await _api_get(
+            f"/v0/coins/{project_id}/investors-list/exclusive/limited",
+            params={"limit": 50, "skip": 0},
+        )
+        if not data or not isinstance(data, dict):
+            return []
+
+        if data.get("blocked") == "limit_reached":
+            log.warning("cryptorank.limit_reached", endpoint="investors-list", slug=project_id)
+            self.limit_reached = True
+
+        result = []
+        for inv in data.get("investors") or []:
+            name = inv.get("name") or inv.get("slug", "")
+            if not name:
+                continue
+            result.append({
+                "name": name,
+                "logo": inv.get("image"),
+                "tier": inv.get("tier"),
+                "category": inv.get("category"),
+                "is_lead": inv.get("isLead", False),
+                "stage": inv.get("stage") or [],
+            })
+
+        log.info("cryptorank.investors_list.done", slug=project_id, count=len(result))
+        await cache_set(cache_key, result, ttl=3600)
+        return result
 
     async def get_token_vesting(self, project_id: str) -> dict:
         """

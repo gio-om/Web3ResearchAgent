@@ -24,18 +24,28 @@ export interface VestingSchedule {
   unlocked_percent?: number | null;
 }
 
+export interface InvestorChip {
+  name: string;
+  logo?: string | null;
+}
+
 export interface FundingRound {
   round_name: string;
   amount_usd: number | null;
   date: string | null;
   valuation_usd: number | null;
-  investors?: string[];
+  investors?: InvestorChip[];
   announcement?: string | null;
 }
 
 export interface InvestorInfo {
   name: string;
+  logo?: string | null;
   tier: string | null;
+  round?: string;
+  stages?: string[];
+  category?: string | null;
+  is_lead?: boolean;
   portfolio_notable: string[];
 }
 
