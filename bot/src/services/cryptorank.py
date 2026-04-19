@@ -14,7 +14,7 @@ All methods exception-safe: on error log and return None / [] / {}.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 import structlog
@@ -449,50 +449,91 @@ class CryptoRankClient:
         await cache_set(cache_key, rounds, ttl=3600)
         return rounds
 
-    async def get_token_vesting(self, project_id: str) -> list[dict]:
+    async def get_token_vesting(self, project_id: str) -> dict:
         """
         Get token vesting schedule.
 
-        Endpoint (discovered via DevTools):
-          GET /v0/coins/vesting/{slug}/exclusive
+        Tries two endpoints (fallback order):
+          1. GET /v0/coins/vesting/{slug}/exclusive  (premium, has batches with dates)
+          2. GET /v0/app/coins/{slug}/vesting/allocations  (public fallback)
 
-        Returns list of:
-            {recipient_type, total_percent, cliff_months, vesting_months, tge_percent}
+        Returns:
+            {
+              "tge_start_date": "2024-05-16",
+              "allocations": [{
+                recipient_type, total_percent, cliff_months, vesting_months,
+                tge_percent, round_date, unlock_type, tokens, unlocked_percent
+              }]
+            }
         """
-        cache_key = f"cr:vesting:{project_id}"
+        cache_key = f"cr:vesting3:{project_id}"
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
 
+        # Try primary endpoint first, then fallback
         data = await _api_get(f"/v0/coins/vesting/{project_id}/exclusive")
+        if not data:
+            data = await _api_get(f"/v0/app/coins/{project_id}/vesting/allocations")
 
-        allocations: list = []
-        if isinstance(data, list):
-            allocations = data
-        elif isinstance(data, dict):
-            # /v0/coins/vesting/{slug}/exclusive → {"data": {"allocations": [...]}}
+        log.debug("cryptorank.vesting.raw", slug=project_id, data_type=type(data).__name__,
+                  keys=list(data.keys()) if isinstance(data, dict) else None)
+
+        tge_start_date = None
+        allocations_raw: list = []
+        if isinstance(data, dict):
             inner = data.get("data") or {}
-            allocations = (
-                inner.get("allocations")
-                or data.get("allocations")
-                or (inner if isinstance(inner, list) else [])
-            )
+            if isinstance(inner, dict):
+                vesting_meta = inner.get("vesting") or {}
+                tge_start_date = _parse_date(
+                    vesting_meta.get("tge_start_date") or vesting_meta.get("total_start_date")
+                )
+                allocations_raw = inner.get("allocations") or []
+            # Some endpoints nest differently: data.allocations at top level
+            if not allocations_raw:
+                allocations_raw = data.get("allocations") or []
+            # Or data.data is the list directly
+            if not allocations_raw and isinstance(inner, list):
+                allocations_raw = inner
+        elif isinstance(data, list):
+            allocations_raw = data
 
-        result: list[dict] = []
-        for alloc in allocations:
+        log.info("cryptorank.vesting.parsed", slug=project_id, count=len(allocations_raw),
+                 tge_date=tge_start_date)
+
+        today = datetime.now(timezone.utc)
+        result_allocations: list[dict] = []
+        for alloc in allocations_raw:
             batches = alloc.get("batches", []) or []
             tge_pct = next(
-                (b.get("unlock_percent", 0) for b in batches if b.get("is_tge")),
-                0,
+                (float(b.get("unlock_percent") or 0) for b in batches if b.get("is_tge")),
+                0.0,
             )
-            result.append({
+            unlocked_pct = 0.0
+            for b in batches:
+                try:
+                    bd = datetime.fromisoformat(b["date"].replace("Z", "+00:00"))
+                except (KeyError, ValueError):
+                    continue
+                if bd <= today:
+                    unlocked_pct += float(b.get("unlock_percent") or 0)
+
+            result_allocations.append({
                 "recipient_type": alloc.get("name", "Unknown"),
                 "total_percent": float(alloc.get("tokens_percent", 0) or 0),
                 "cliff_months": _cliff_months(batches),
                 "vesting_months": _vesting_months(alloc),
-                "tge_percent": float(tge_pct or 0),
+                "tge_percent": tge_pct,
+                "round_date": _parse_date(alloc.get("round_date")),
+                "unlock_type": alloc.get("unlock_type", "linear"),
+                "tokens": int(alloc.get("tokens") or 0),
+                "unlocked_percent": round(min(unlocked_pct, 100.0), 4),
             })
 
-        log.info("cryptorank.vesting.done", slug=project_id, count=len(result))
+        result = {
+            "tge_start_date": tge_start_date,
+            "allocations": result_allocations,
+        }
+        log.info("cryptorank.vesting.done", slug=project_id, count=len(result_allocations))
         await cache_set(cache_key, result, ttl=3600)
         return result

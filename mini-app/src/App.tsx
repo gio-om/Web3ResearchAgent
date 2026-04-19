@@ -6,7 +6,6 @@ import { useTelegram } from "./hooks/useTelegram";
 import ProjectCard from "./components/ProjectCard";
 import RiskFlags from "./components/RiskFlags";
 import VestingChart from "./components/VestingChart";
-import TokenDistribution from "./components/TokenDistribution";
 import FundsList from "./components/FundsList";
 import TeamVerification from "./components/TeamVerification";
 import ScoreGauge from "./components/ScoreGauge";
@@ -101,16 +100,13 @@ function ReportView({ reportId }: { reportId: number }) {
       </Section>
 
       <Section title="Tokenomics — Vesting">
-        <VestingChart schedules={report.tokenomics?.vesting_schedules ?? []} />
+        <VestingChart
+          schedules={report.tokenomics?.vesting_schedules ?? []}
+          tgeStartDate={report.tokenomics?.tge_start_date}
+          tokenSymbol={report.tokenomics?.token_symbol}
+          maxSupply={report.tokenomics?.max_supply}
+        />
       </Section>
-
-      {Object.keys(report.tokenomics?.token_distribution ?? {}).length > 0 && (
-        <Section title="Token Distribution">
-          <TokenDistribution
-            distribution={report.tokenomics?.token_distribution ?? {}}
-          />
-        </Section>
-      )}
 
       <Section title="Funding & Investors">
         <FundsList

@@ -31,18 +31,32 @@ Respond ONLY in valid JSON (no markdown fences):
 """
 
 
-def _build_tokenomics(documentation_data: dict, cr_vesting: list) -> dict:
+def _build_tokenomics(documentation_data: dict, cr_vesting) -> dict:
     """
     Merge documentation tokenomics with CryptoRank vesting data.
     CryptoRank vesting takes priority for vesting_schedules if available.
+    cr_vesting may be a dict {"tge_start_date": ..., "allocations": [...]}
+    or a legacy list for backwards compatibility.
     """
     base = dict(documentation_data) if documentation_data else {}
-    # CryptoRank vesting is already in mini-app's VestingSchedule format:
-    # {recipient_type, total_percent, cliff_months, vesting_months, tge_percent}
-    if cr_vesting:
+    if isinstance(cr_vesting, dict):
+        allocations = cr_vesting.get("allocations", [])
+        if allocations:
+            base["vesting_schedules"] = allocations
+        tge_start = cr_vesting.get("tge_start_date")
+        if tge_start:
+            base["tge_start_date"] = tge_start
+    elif isinstance(cr_vesting, list) and cr_vesting:
         base["vesting_schedules"] = cr_vesting
-    elif "vesting_schedules" not in base:
+    if "vesting_schedules" not in base:
         base["vesting_schedules"] = []
+    # Derive token_distribution from vesting schedules if not already set
+    if not base.get("token_distribution"):
+        base["token_distribution"] = {
+            s["recipient_type"]: s["total_percent"]
+            for s in base["vesting_schedules"]
+            if s.get("recipient_type") and s.get("total_percent")
+        }
     return base
 
 
@@ -336,8 +350,16 @@ async def analyst_node(state: dict) -> dict:
         if "aggregator" in enabled_modules or "documentation" in enabled_modules:
             report["tokenomics"] = _build_tokenomics(
                 documentation_data,
-                cr.get("vesting", []),
+                cr.get("vesting") or {},
             )
+            cr_project = cr.get("project", {}) or {}
+            tok = report["tokenomics"]
+            if not tok.get("token_symbol") and cr_project.get("symbol"):
+                tok["token_symbol"] = cr_project["symbol"]
+            if not tok.get("max_supply") and cr_project.get("max_supply"):
+                tok["max_supply"] = cr_project["max_supply"]
+            elif not tok.get("max_supply") and cr_project.get("total_supply"):
+                tok["max_supply"] = cr_project["total_supply"]
 
         # Overwrite social section only when social was run
         if "social" in enabled_modules:

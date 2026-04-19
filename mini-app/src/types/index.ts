@@ -18,6 +18,10 @@ export interface VestingSchedule {
   cliff_months: number;
   vesting_months: number;
   tge_percent: number;
+  round_date?: string | null;
+  unlock_type?: string | null;
+  tokens?: number;
+  unlocked_percent?: number | null;
 }
 
 export interface FundingRound {
@@ -70,6 +74,9 @@ export interface SocialData {
 export interface TokenomicsData {
   total_supply: number | null;
   circulating_supply: number | null;
+  max_supply?: number | null;
+  token_symbol?: string;
+  tge_start_date?: string | null;
   vesting_schedules: VestingSchedule[];
   token_distribution: Record<string, number>;
 }

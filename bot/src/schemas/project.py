@@ -31,6 +31,10 @@ class VestingSchedule(BaseModel):
     cliff_months: int | None = None
     vesting_months: int | None = None
     tge_unlock_pct: float | None = None  # Процент, разблокированный на TGE
+    round_date: str | None = None      # Дата раунда / старта аллокации (YYYY-MM-DD)
+    unlock_type: str | None = None     # "linear", "vested_at_tge", etc.
+    tokens: int | None = None          # Абсолютное число токенов
+    unlocked_percent: float | None = None  # % токенов этой аллокации уже разблокированных
 
 
 class TokenomicsData(BaseModel):
@@ -38,10 +42,12 @@ class TokenomicsData(BaseModel):
     token_symbol: str = ""
     total_supply: float | None = None
     circulating_supply: float | None = None
+    max_supply: float | None = None
     fdv_usd: float | None = None
     current_mcap_usd: float | None = None
     current_price_usd: float | None = None
     ath_usd: float | None = None
+    tge_start_date: str | None = None  # Дата TGE (YYYY-MM-DD)
     vesting_schedules: list[VestingSchedule] = Field(default_factory=list)
 
 

@@ -14,7 +14,7 @@ const TIER_STYLE: Record<string, string> = {
 
 export default function FundsList({ investors, fundingRounds }: FundsListProps) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 bg-white rounded-xl p-4 shadow-sm">
       {fundingRounds.length > 0 && (
         <div>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">

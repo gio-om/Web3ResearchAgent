@@ -55,7 +55,7 @@ TEXTS: dict[str, dict[str, str]] = {
         # Analysis type keyboard buttons
         "btn_full_analysis": "🔄 Полный анализ",
         "btn_market_data": "📊 Рыночные данные",
-        "btn_docs": "📄 Документация / токеномика",
+        "btn_docs": "📄 Токеномика и Инвесторы",
         "btn_social": "📱 Соцсети",
         "btn_team": "👥 Команда",
         "btn_cancel": "❌ Отмена",
@@ -101,7 +101,7 @@ TEXTS: dict[str, dict[str, str]] = {
         # Analysis mode labels (used in keyboards and progress)
         "mode_full": "Полный анализ",
         "mode_market": "Рыночные данные",
-        "mode_docs": "Документация / токеномика",
+        "mode_docs": "Токеномика и Инвесторы",
         "mode_social": "Соцсети",
         "mode_team": "Команда",
         # Module labels (progress message)

@@ -33,7 +33,8 @@ async def cross_check_node(state: dict) -> dict:
     flags = []
 
     # --- 1. Tokenomics: aggregator vs documentation ---
-    agg_vesting = (aggregator_data.get("cryptorank", {}) or {}).get("vesting", []) or []
+    _cr_vesting_raw = (aggregator_data.get("cryptorank", {}) or {}).get("vesting") or {}
+    agg_vesting = _cr_vesting_raw.get("allocations", []) if isinstance(_cr_vesting_raw, dict) else (_cr_vesting_raw if isinstance(_cr_vesting_raw, list) else [])
     doc_vesting = documentation_data.get("vesting_schedules", []) or []
 
     if agg_vesting and doc_vesting:
