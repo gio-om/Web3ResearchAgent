@@ -168,16 +168,17 @@ async def _new_page(browser, raw_cookie: str):
     return context, page
 
 
-async def _scroll_and_collect(page, selector: str, count: int) -> list[Any]:
+async def _scroll_and_collect(page, selector: str, count: int, max_rounds: int | None = None) -> list[Any]:
     """
-    Scroll the page MAX_SCROLL_ROUNDS times, collecting elements that match
+    Scroll the page up to `max_rounds` times, collecting elements that match
     `selector` until we have at least `count` items or run out of content.
     Returns deduplicated list of element handles.
     """
     seen_ids: set[str] = set()
     elements: list[Any] = []
+    rounds = max_rounds if max_rounds is not None else MAX_SCROLL_ROUNDS
 
-    for _ in range(MAX_SCROLL_ROUNDS):
+    for _ in range(rounds):
         articles = await page.query_selector_all(selector)
         for el in articles:
             # Use tweet URL (/status/ID) as unique key; fall back to timestamp
@@ -276,6 +277,17 @@ async def _parse_tweet_article(article) -> dict | None:
     except Exception as e:
         log.debug("twitter.parse_tweet_failed", error=str(e))
         return None
+
+
+async def _get_article_id(article) -> str:
+    """Stable unique ID for a tweet article element (tweet URL or timestamp)."""
+    link_el = await article.query_selector('a[href*="/status/"]')
+    if link_el:
+        return await link_el.get_attribute("href") or str(id(article))
+    time_el = await article.query_selector("time[datetime]")
+    if time_el:
+        return await time_el.get_attribute("datetime") or str(id(article))
+    return str(id(article))
 
 
 # ---------------------------------------------------------------------------
@@ -483,11 +495,34 @@ class TwitterClient:
                 # Wait until an actual tweet *with text* is visible (not a skeleton)
                 await page.wait_for_selector(SEL_TWEET_TEXT, timeout=20_000)
 
-                articles = await _scroll_and_collect(page, SEL_TWEET_ARTICLE, count)
-                for article in articles:
-                    parsed = await _parse_tweet_article(article)
-                    if parsed:
-                        tweets.append(parsed)
+                seen_ids: set[str] = set()
+                no_new_rounds = 0
+                max_rounds = min(50, max(MAX_SCROLL_ROUNDS, count + 10))
+
+                for _ in range(max_rounds):
+                    articles = await page.query_selector_all(SEL_TWEET_ARTICLE)
+                    new_this_round = 0
+                    for article in articles:
+                        el_id = await _get_article_id(article)
+                        if el_id in seen_ids:
+                            continue
+                        seen_ids.add(el_id)
+                        new_this_round += 1
+                        parsed = await _parse_tweet_article(article)
+                        if parsed:
+                            tweets.append(parsed)
+                            if len(tweets) >= count:
+                                break
+                    if len(tweets) >= count:
+                        break
+                    if new_this_round == 0:
+                        no_new_rounds += 1
+                        if no_new_rounds >= 2:
+                            break
+                    else:
+                        no_new_rounds = 0
+                    await page.evaluate("window.scrollBy(0, window.innerHeight * 0.85)")
+                    await asyncio.sleep(SCROLL_PAUSE)
 
                 log.info("twitter.get_tweets.done", username=username, count=len(tweets))
             finally:
@@ -542,19 +577,40 @@ class TwitterClient:
                 await page.goto(search_url, timeout=PAGE_TIMEOUT, wait_until="load")
                 await page.wait_for_selector(SEL_TWEET_TEXT, timeout=20_000)
 
-                articles = await _scroll_and_collect(page, SEL_TWEET_ARTICLE, count)
-                for article in articles:
-                    parsed = await _parse_tweet_article(article)
-                    if not parsed:
-                        continue
-                    # Try to extract author handle
-                    author_el = await article.query_selector('[data-testid="User-Name"] a')
-                    if author_el:
-                        href = await author_el.get_attribute("href") or ""
-                        handle = _handle_from_url(href)
-                        if handle:
-                            parsed["author_username"] = handle
-                    tweets.append(parsed)
+                seen_ids: set[str] = set()
+                no_new_rounds = 0
+                max_rounds = min(50, max(MAX_SCROLL_ROUNDS, count + 10))
+
+                for _ in range(max_rounds):
+                    articles = await page.query_selector_all(SEL_TWEET_ARTICLE)
+                    new_this_round = 0
+                    for article in articles:
+                        el_id = await _get_article_id(article)
+                        if el_id in seen_ids:
+                            continue
+                        seen_ids.add(el_id)
+                        new_this_round += 1
+                        parsed = await _parse_tweet_article(article)
+                        if parsed:
+                            author_el = await article.query_selector('[data-testid="User-Name"] a')
+                            if author_el:
+                                href = await author_el.get_attribute("href") or ""
+                                handle = _handle_from_url(href)
+                                if handle:
+                                    parsed["author_username"] = handle
+                            tweets.append(parsed)
+                            if len(tweets) >= count:
+                                break
+                    if len(tweets) >= count:
+                        break
+                    if new_this_round == 0:
+                        no_new_rounds += 1
+                        if no_new_rounds >= 2:
+                            break
+                    else:
+                        no_new_rounds = 0
+                    await page.evaluate("window.scrollBy(0, window.innerHeight * 0.85)")
+                    await asyncio.sleep(SCROLL_PAUSE)
 
                 log.info("twitter.search_mentions.done", project=project_name, count=len(tweets))
             finally:
