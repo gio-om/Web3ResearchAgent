@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery, Message
 
 from src.bot.i18n import t
 from src.bot.keyboards import (
+    docs_settings_keyboard,
     language_keyboard,
     language_settings_keyboard,
     main_keyboard,
@@ -22,6 +23,10 @@ class SocialSettingsStates(StatesGroup):
     entering_tweets_count = State()
     entering_mentions_count = State()
     entering_top_posts = State()
+
+
+class DocsSettingsStates(StatesGroup):
+    entering_pages_count = State()
 
 
 async def _load_settings(user_id: int) -> dict:
@@ -256,6 +261,58 @@ async def msg_custom_top_posts(message: Message, state: FSMContext, lang: str = 
     await message.answer(
         t("social_settings_menu", stored_lang, tweets_count=tweets_count, mentions_count=mentions_count, top_posts=n),
         reply_markup=social_settings_keyboard(stored_lang, tweets_count, mentions_count, n),
+    )
+
+
+@router.callback_query(F.data == "settings_docs")
+async def cb_settings_docs(callback: CallbackQuery, lang: str = "ru") -> None:
+    await callback.answer()
+    user_settings = await _load_settings(callback.from_user.id)
+    max_pages = int(user_settings.get("docs_max_pages", 30))
+    await callback.message.edit_text(
+        t("docs_settings_menu", lang, max_pages=max_pages),
+        reply_markup=docs_settings_keyboard(lang, max_pages),
+    )
+
+
+@router.callback_query(F.data.startswith("docs_pages:"))
+async def cb_docs_pages(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
+    value = callback.data.split(":")[1]
+    await callback.answer()
+
+    if value == "custom":
+        await state.set_state(DocsSettingsStates.entering_pages_count)
+        await state.update_data(lang=lang)
+        await callback.message.answer(t("enter_docs_pages", lang))
+        return
+
+    n = int(value)
+    await _save_setting(callback.from_user.id, "docs_max_pages", n)
+    await callback.answer(t("docs_pages_saved", lang, n=n))
+    await callback.message.edit_text(
+        t("docs_settings_menu", lang, max_pages=n),
+        reply_markup=docs_settings_keyboard(lang, n),
+    )
+
+
+@router.message(DocsSettingsStates.entering_pages_count)
+async def msg_custom_docs_pages(message: Message, state: FSMContext, lang: str = "ru") -> None:
+    fsm_data = await state.get_data()
+    stored_lang = fsm_data.get("lang", lang)
+    await state.clear()
+
+    try:
+        n = int(message.text.strip())
+        if n < 1 or n > 100:
+            raise ValueError
+    except (ValueError, AttributeError):
+        await message.answer(t("invalid_number", stored_lang))
+        return
+
+    await _save_setting(message.from_user.id, "docs_max_pages", n)
+    await message.answer(
+        t("docs_settings_menu", stored_lang, max_pages=n),
+        reply_markup=docs_settings_keyboard(stored_lang, n),
     )
 
 

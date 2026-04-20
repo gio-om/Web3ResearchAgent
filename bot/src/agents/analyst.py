@@ -338,6 +338,10 @@ async def analyst_node(state: dict) -> dict:
         # Docs URL from documentation agent
         if documentation_data.get("docs_url") and not project_links.get("docs"):
             project_links["docs"] = documentation_data["docs_url"]
+        # External links discovered in documentation (social/official links page)
+        for label, url in (documentation_data.get("project_links") or {}).items():
+            if label not in project_links:
+                project_links[label] = url
         # Always include CryptoRank page
         if project_slug and not project_links.get("cryptorank"):
             project_links["cryptorank"] = f"https://cryptorank.io/price/{project_slug}"
@@ -397,6 +401,21 @@ async def analyst_node(state: dict) -> dict:
                 tok["max_supply"] = cr_project["max_supply"]
             elif not tok.get("max_supply") and cr_project.get("total_supply"):
                 tok["max_supply"] = cr_project["total_supply"]
+
+        # Overwrite documentation section only when documentation was run
+        if "documentation" in enabled_modules:
+            report["documentation"] = {
+                "project_description": documentation_data.get("project_description"),
+                "key_features": documentation_data.get("key_features", []),
+                "token_name": documentation_data.get("token_name"),
+                "token_symbol": documentation_data.get("token_symbol"),
+                "total_supply": documentation_data.get("total_supply"),
+                "unusual_conditions": documentation_data.get("unusual_conditions", []),
+                "data_completeness": documentation_data.get("data_completeness"),
+                "docs_url": documentation_data.get("docs_url"),
+                "scraped_pages": documentation_data.get("scraped_pages", []),
+                "error": documentation_data.get("error"),
+            }
 
         # Overwrite social section only when social was run
         if "social" in enabled_modules:

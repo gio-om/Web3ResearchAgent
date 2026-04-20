@@ -41,6 +41,10 @@ async def orchestrator_node(state: dict) -> dict:
     if not project_slug:
         project_slug = project_name.lower().replace(" ", "-")
 
+    # Preserve pre-set URLs from state (e.g. user-provided docs link); they take priority
+    preset_urls = dict(state.get("project_urls") or {})
+    project_urls = {**project_urls, **preset_urls}
+
     log.info("orchestrator.done", project_name=project_name, project_slug=project_slug)
 
     return {

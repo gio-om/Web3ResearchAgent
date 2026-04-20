@@ -23,6 +23,17 @@ services:
     ports:
       - "8080:8080"  # FastAPI для Mini App
 
+  debug:
+    build: ./bot
+    env_file: .env
+    profiles: ["debug"]
+    depends_on:
+      - omniroute
+      - postgres
+      - redis
+    volumes:
+      - ./debug_documentation.py:/app/debug_documentation.py:ro
+
   mini-app:
     build: ./mini-app
     ports:

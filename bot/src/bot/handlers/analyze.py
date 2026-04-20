@@ -9,35 +9,39 @@ Flow:
 """
 import html
 from aiogram import Router, F
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from src.bot.i18n import t
-from src.bot.keyboards import analysis_type_keyboard, report_keyboard
+from src.bot.keyboards import analysis_type_keyboard, docs_link_keyboard, report_keyboard
 
 router = Router(name="analyze")
 
 
 class AnalysisStates(StatesGroup):
     choosing_mode = State()
+    asking_docs_link = State()   # waiting for yes/no on user-provided docs URL
+    waiting_docs_url = State()   # waiting for the user to type the docs URL
 
 
 _MODE_MODULES: dict[str, list[str]] = {
-    "full":   ["aggregator", "documentation", "social", "team"],
-    "market": ["aggregator"],
-    "docs":   ["aggregator", "documentation"],
-    "social": ["social"],
-    "team":   ["team"],
+    "full":          ["aggregator", "documentation", "social", "team"],
+    "market":        ["aggregator"],
+    "docs":          ["aggregator", "documentation"],
+    "documentation": ["documentation"],
+    "social":        ["social"],
+    "team":          ["team"],
 }
 
 _MODE_LABEL_KEY: dict[str, str] = {
-    "full":   "mode_full",
-    "market": "mode_market",
-    "docs":   "mode_docs",
-    "social": "mode_social",
-    "team":   "mode_team",
+    "full":          "mode_full",
+    "market":        "mode_market",
+    "docs":          "mode_docs",
+    "documentation": "mode_documentation",
+    "social":        "mode_social",
+    "team":          "mode_team",
 }
 
 _MODULE_LABEL_KEY: dict[str, str] = {
@@ -100,7 +104,48 @@ async def cmd_analyze(message: Message, state: FSMContext, lang: str = "ru") -> 
     await _ask_mode(message, state, args[1].strip(), lang)
 
 
-@router.message(F.text & ~F.text.startswith("/"))
+@router.callback_query(F.data == "docs_link:yes")
+async def cb_docs_link_yes(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
+    fsm_data = await state.get_data()
+    stored_lang = fsm_data.get("lang", lang)
+    await state.set_state(AnalysisStates.waiting_docs_url)
+    await callback.answer()
+    await callback.message.edit_text(t("docs_link_prompt", stored_lang))
+
+
+@router.callback_query(F.data == "docs_link:no")
+async def cb_docs_link_no(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
+    fsm_data = await state.get_data()
+    query = fsm_data.get("query", "")
+    user_id = fsm_data.get("user_id") or callback.from_user.id
+    stored_lang = fsm_data.get("lang", lang)
+    mode = fsm_data.get("mode", "documentation")
+    await state.clear()
+    await callback.answer()
+    mode_label = t(_MODE_LABEL_KEY[mode], stored_lang)
+    await callback.message.edit_text(
+        t("project_mode_label", stored_lang, query=query, mode=mode_label)
+    )
+    await _run_analysis(callback.message, query, mode, stored_lang, user_id=user_id)
+
+
+@router.message(AnalysisStates.waiting_docs_url, F.text)
+async def handle_docs_url_input(message: Message, state: FSMContext, lang: str = "ru") -> None:
+    docs_url = message.text.strip()
+    fsm_data = await state.get_data()
+    query = fsm_data.get("query", "")
+    user_id = fsm_data.get("user_id") or (message.from_user.id if message.from_user else 0)
+    stored_lang = fsm_data.get("lang", lang)
+    mode = fsm_data.get("mode", "documentation")
+    await state.clear()
+    mode_label = t(_MODE_LABEL_KEY[mode], stored_lang)
+    await message.answer(
+        t("project_mode_label", stored_lang, query=query, mode=mode_label)
+    )
+    await _run_analysis(message, query, mode, stored_lang, user_id=user_id, docs_url=docs_url)
+
+
+@router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
 async def handle_plain_text(message: Message, state: FSMContext, lang: str = "ru") -> None:
     query = message.text.strip()
     if len(query) < 2:
@@ -133,12 +178,23 @@ async def cb_analysis_type(callback: CallbackQuery, state: FSMContext, lang: str
     user_id = fsm_data.get("user_id") or callback.from_user.id
     # Prefer lang stored when _ask_mode was called
     stored_lang = fsm_data.get("lang", lang)
-    await state.clear()
 
     if not query:
+        await state.clear()
         await callback.message.edit_text(t("no_query", stored_lang))
         return
 
+    # Documentation mode: ask user whether they have a docs link
+    if mode == "documentation":
+        await state.set_state(AnalysisStates.asking_docs_link)
+        await state.update_data(query=query, user_id=user_id, lang=stored_lang, mode=mode)
+        await callback.message.edit_text(
+            t("docs_link_question", stored_lang),
+            reply_markup=docs_link_keyboard(stored_lang),
+        )
+        return
+
+    await state.clear()
     mode_label = t(_MODE_LABEL_KEY[mode], stored_lang)
     await callback.message.edit_text(
         t("project_mode_label", stored_lang, query=query, mode=mode_label)
@@ -195,7 +251,7 @@ async def _load_user_settings(user_id: int) -> dict:
         return {}
 
 
-async def _run_analysis(message: Message, query: str, mode: str = "full", lang: str = "ru", user_id: int = 0) -> None:
+async def _run_analysis(message: Message, query: str, mode: str = "full", lang: str = "ru", user_id: int = 0, docs_url: str = "") -> None:
     from src.agents.graph import build_analysis_graph
     from src.schemas.agent_state import AgentState
     from datetime import datetime, timezone
@@ -215,6 +271,7 @@ async def _run_analysis(message: Message, query: str, mode: str = "full", lang: 
         user_settings=user_settings,
         lang=lang,
         skip_cryptorank=(mode == "market"),
+        project_urls={"docs": docs_url} if docs_url else {},
     )
 
     try:

@@ -25,6 +25,7 @@ _progress: dict = {
     "chat_id": None,
     "message_id": None,
     "project_name": "",
+    "lang": "ru",
     "modules": [],
     "done": set(),
     "failed": set(),
@@ -38,9 +39,15 @@ def set_bot(bot: "Bot") -> None:
     _bot = bot
 
 
+_HEADER = {"ru": "🔍 <b>Анализ проекта: {name}</b>", "en": "🔍 <b>Analysing project: {name}</b>"}
+_FORMING = {"ru": "📝 <i>Формируем отчёт...</i>", "en": "📝 <i>Forming report...</i>"}
+
+
 def _build_progress_text() -> str:
     p = _progress
-    lines = [f"🔍 <b>Анализ проекта: {p['project_name']}</b>\n"]
+    lang = p.get("lang", "ru")
+    labels = _MODULE_LABEL.get(lang) or _MODULE_LABEL["ru"]
+    lines = [_HEADER.get(lang, _HEADER["ru"]).format(name=p["project_name"]), ""]
     for m in p["modules"]:
         if m in p["done"]:
             icon, step = "✅", ""
@@ -49,13 +56,13 @@ def _build_progress_text() -> str:
         else:
             icon = "⏳"
             step = p["steps"].get(m, "")
-        label = _MODULE_LABEL[m]
+        label = labels.get(m, m)
         if step:
             lines.append(f"{icon} {label}...\n   └ <i>{step}</i>")
         else:
             lines.append(f"{icon} {label}...")
     if p.get("forming_report"):
-        lines.append("\n📝 <i>Формируем отчёт...</i>")
+        lines.append("\n" + _FORMING.get(lang, _FORMING["ru"]))
     return "\n".join(lines)
 
 
@@ -114,10 +121,18 @@ _AGENT_KEYS = [
 _AGENT_TIMEOUT = 150  # seconds per agent
 
 _MODULE_LABEL = {
-    "aggregator":    "Сбор данных с агрегаторов",
-    "documentation": "Анализ документации",
-    "social":        "Проверка соцсетей",
-    "team":          "Верификация команды",
+    "ru": {
+        "aggregator":    "Сбор данных с агрегаторов",
+        "documentation": "Анализ документации",
+        "social":        "Проверка соцсетей",
+        "team":          "Верификация команды",
+    },
+    "en": {
+        "aggregator":    "Collecting aggregator data",
+        "documentation": "Analysing documentation",
+        "social":        "Checking socials",
+        "team":          "Verifying team",
+    },
 }
 
 
@@ -145,6 +160,7 @@ async def dispatcher_node(state: dict) -> dict:
     _progress["chat_id"] = state.get("chat_id")
     _progress["message_id"] = state.get("message_id")
     _progress["project_name"] = state.get("project_name") or state.get("project_query", "")
+    _progress["lang"] = state.get("lang", "ru")
     _progress["modules"] = [m for m in _ALL_MODULES if m in enabled]
     _progress["done"] = set()
     _progress["failed"] = set()

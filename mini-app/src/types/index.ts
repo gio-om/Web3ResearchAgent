@@ -93,6 +93,19 @@ export interface TokenomicsData {
   token_distribution: Record<string, number>;
 }
 
+export interface DocumentationInfo {
+  project_description?: string | null;
+  key_features?: string[];
+  token_name?: string | null;
+  token_symbol?: string | null;
+  total_supply?: number | null;
+  unusual_conditions?: string[];
+  data_completeness?: "high" | "medium" | "low" | null;
+  docs_url?: string | null;
+  scraped_pages?: string[];
+  error?: string | null;
+}
+
 export interface Report {
   project_name: string;
   project_slug: string;
@@ -105,6 +118,7 @@ export interface Report {
   investors: InvestorInfo[];
   team: TeamMember[];
   social?: SocialData;
+  documentation?: DocumentationInfo;
   risk_flags: RiskFlag[];
   strengths: string[];
   weaknesses: string[];

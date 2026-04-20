@@ -1,14 +1,98 @@
 # PROJECT_STATE.md — Web3 Due Diligence Bot
 
 > Документ для восстановления контекста в новой сессии.
-> Актуален на: 2026-04-15
-> Статус: **Фазы 1–6 завершены. CryptoRank API работает. Mini-app работает. OpenAI-провайдер добавлен. Twitter/X scraper реализован на Playwright. Все ссылки проекта отображаются в mini-app.**
+> Актуален на: 2026-04-20
+> Статус: **Фазы 1–6 завершены. Документация: полный редизайн (анализ всех страниц, а не только токеномики). Двуязычные статусы. Настройка кол-ва страниц в боте. Debug-скрипт через Docker.**
 
 ---
 
 ## Текущий статус
 
 Всё работает. `twitter.py` — полностью реализован через Playwright + Bearer Token (аналогично CryptoRank). Заглушка удалена.
+
+---
+
+## Сессия 2026-04-20 — Редизайн анализа документации + настройки
+
+### Что сделано
+
+#### 1. Редизайн анализа документации (`documentation.py`, `scraper.py`)
+
+**Было:** `scrape_tokenomics_pages` — BFS с фильтром по tokenomics-ключевым словам. Если вводная страница не содержала слова "tokenomics/vesting/supply" — возвращал 0 страниц.
+
+**Стало:** `scrape_docs_pages` — BFS без фильтра, собирает все читаемые страницы. LLM-промпт переориентирован на выжимку самого интересного из документации (`project_description`, `key_features`, `unusual_conditions`).
+
+```python
+# Новый промпт — общее резюме, а не токеномика
+DOCUMENTATION_PROMPT = """...
+{
+  "project_description": "<2-3 sentence summary>",
+  "key_features": [...],
+  "token_name", "token_symbol", "total_supply",
+  "unusual_conditions": [...],
+  "data_completeness": "high|medium|low"
+}
+"""
+```
+
+#### 2. Двуязычные статусы в боте
+
+- `documentation.py` — `_STEPS` dict с ключами `"ru"`/`"en"`, хелпер `_step(key, lang)`
+- `graph.py` — `_MODULE_LABEL`, `_HEADER`, `_FORMING` — dict-of-dicts с RU/EN вариантами; `lang` хранится в `_progress`
+
+#### 3. Настройка максимального числа страниц документации
+
+Новая настройка в боте (по образцу social settings): кнопки **10 / 30 / 50 / своё**, по умолчанию **30**.
+
+| Файл | Изменение |
+|---|---|
+| `bot/src/bot/keyboards.py` | `docs_settings_keyboard(lang, max_pages)` + кнопка в `settings_keyboard` |
+| `bot/src/bot/i18n.py` | `docs_settings_menu`, `docs_pages_saved`, `enter_docs_pages`, `btn_docs_settings` (RU + EN) |
+| `bot/src/bot/handlers/start.py` | `DocsSettingsStates`, `cb_settings_docs`, `cb_docs_pages`, `msg_custom_docs_pages` |
+| `bot/src/agents/documentation.py` | Читает `state["user_settings"]["docs_max_pages"]` → передаёт в `scrape_docs_pages(max_pages=...)` |
+
+#### 4. Debug-скрипт `debug_documentation.py`
+
+Файл в `web3-dd-bot/` (не в `bot/`). Стабит Redis и `push_step`, принимает аргументы `<project_name> [--docs <url>] [--lang ru|en]`. Запускается через Docker:
+
+```bash
+docker compose run --rm debug python /app/debug_documentation.py "Pixie Chess" --docs https://...
+```
+
+Добавлен сервис `debug` в `docker-compose.yml` с `profiles: ["debug"]` и bind-mount `./debug_documentation.py:/app/debug_documentation.py:ro`.
+
+#### 5. Фильтрация медиа-ссылок в scraper'е
+
+`_collect_internal_links` теперь пропускает URL с расширениями `.png .jpg .svg .gif .webp .ico .pdf .woff .mp4` и др. — не делает лишних HTTP-запросов.
+
+#### 6. Сбор внешних (официальных) ссылок из документации
+
+Во время BFS-кролла каждая страница анализируется на внешние ссылки → сохраняются в `ScrapedPage.external_links: dict[str, str]`. В `documentation_node` они мёрджатся в `documentation_data["project_links"]`. В `analyst.py` добавляются в `report["project_links"]` (не перезаписывая уже известные).
+
+Полезно для страниц "Official Links" — автоматически находит Twitter, Discord, Telegram и т.д.
+
+#### 7. mini-app: компонент `DocumentationAnalysis.tsx`
+
+Полный рерайт компонента: docs link + completeness badge сверху, затем `project_description`, `key_features` буллет-листом, token info, счётчик страниц, unusual conditions.
+
+Добавлены поля `project_description?: string | null` и `key_features?: string[]` в `DocumentationInfo` (`types/index.ts`).
+
+### Изменённые файлы (сессия 2026-04-20)
+
+| Файл | Изменение |
+|---|---|
+| `bot/src/agents/documentation.py` | Новый промпт, `scrape_docs_pages`, билингвальные статусы, чтение `docs_max_pages`, сохранение `project_links` |
+| `bot/src/agents/graph.py` | `_MODULE_LABEL`/`_HEADER`/`_FORMING` билингвальные; `lang` в `_progress` |
+| `bot/src/agents/analyst.py` | `project_description`/`key_features` в `documentation`; мёрдж `project_links` из docs |
+| `bot/src/services/scraper.py` | `scrape_docs_pages` (без фильтра); `_SKIP_EXTENSIONS`; `_collect_external_links`; `ScrapedPage.external_links` |
+| `bot/src/bot/keyboards.py` | `docs_settings_keyboard`, кнопка в `settings_keyboard` |
+| `bot/src/bot/i18n.py` | Тексты для docs settings (RU + EN) |
+| `bot/src/bot/handlers/start.py` | `DocsSettingsStates` + 3 обработчика docs settings |
+| `bot/src/config.py` | `extra = "ignore"` в `Settings.Config` |
+| `docker-compose.yml` | Сервис `debug` с `profiles: ["debug"]` |
+| `debug_documentation.py` | Новый файл — standalone debug runner |
+| `mini-app/src/types/index.ts` | `project_description`, `key_features` в `DocumentationInfo` |
+| `mini-app/src/components/DocumentationAnalysis.tsx` | Новый файл — полный рерайт компонента |
 
 ---
 
@@ -419,6 +503,18 @@ ErrorBoundary оборачивает весь роутер — render-ошибк
 
 | Файл | Что изменено |
 |---|---|
+| `bot/src/agents/documentation.py` | Новый промпт (общее резюме), `scrape_docs_pages`, билингвальные статусы, `docs_max_pages`, `project_links` (04-20) |
+| `bot/src/agents/graph.py` | Билингвальные `_MODULE_LABEL`/`_HEADER`/`_FORMING`; `lang` в `_progress` (04-20) |
+| `bot/src/agents/analyst.py` | `project_description`/`key_features` в `documentation`; мёрдж `project_links` из docs (04-20) |
+| `bot/src/services/scraper.py` | `scrape_docs_pages`; `_SKIP_EXTENSIONS`; `_collect_external_links`; `ScrapedPage.external_links` (04-20) |
+| `bot/src/bot/keyboards.py` | `docs_settings_keyboard`, кнопка в `settings_keyboard` (04-20) |
+| `bot/src/bot/i18n.py` | Тексты docs settings RU+EN (04-20) |
+| `bot/src/bot/handlers/start.py` | `DocsSettingsStates` + обработчики (04-20) |
+| `bot/src/config.py` | `extra = "ignore"` (04-20) |
+| `docker-compose.yml` | Сервис `debug` с `profiles: ["debug"]` (04-20) |
+| `debug_documentation.py` | Новый файл — standalone debug runner (04-20) |
+| `mini-app/src/types/index.ts` | `project_description`, `key_features` в `DocumentationInfo` (04-20) |
+| `mini-app/src/components/DocumentationAnalysis.tsx` | Новый файл — полный рерайт (04-20) |
 | `bot/src/services/twitter.py` | **Полная перепись** — Playwright + Bearer Token, DOM-скрапинг (сессия 2026-04-14) |
 | `bot/src/services/cryptorank.py` | `_extract_links` захватывает все типы ссылок; `**links` spread вместо фильтра (04-15) |
 | `bot/src/agents/aggregator.py` | Back-fill всех ключей из CryptoRank в `project_urls`, убран `_LINK_TYPES` (04-15) |

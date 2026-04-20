@@ -46,8 +46,29 @@ def settings_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text=t("btn_language", lang), callback_data="settings_lang")
     builder.button(text=t("btn_social_settings", lang), callback_data="settings_social")
+    builder.button(text=t("btn_docs_settings", lang), callback_data="settings_docs")
     builder.button(text=t("btn_back", lang), callback_data="main_menu")
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def docs_settings_keyboard(
+    lang: str = "ru",
+    max_pages: int = 30,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    _presets = (10, 30, 50)
+
+    for n in _presets:
+        mark = "✓ " if n == max_pages else ""
+        label = f"{mark}{n} стр." if lang == "ru" else f"{mark}{n} pages"
+        builder.button(text=label, callback_data=f"docs_pages:{n}")
+
+    custom_label = f"✓ ✏️ {max_pages}" if max_pages not in _presets else ("✏️ Своё" if lang == "ru" else "✏️ Custom")
+    builder.button(text=custom_label, callback_data="docs_pages:custom")
+
+    builder.button(text=t("btn_back", lang), callback_data="settings")
+    builder.adjust(4, 1)
     return builder.as_markup()
 
 
@@ -90,11 +111,20 @@ def social_settings_keyboard(
     return builder.as_markup()
 
 
+def docs_link_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t("btn_docs_link_yes", lang), callback_data="docs_link:yes")
+    builder.button(text=t("btn_docs_link_no", lang), callback_data="docs_link:no")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
 def analysis_type_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text=t("btn_full_analysis", lang), callback_data="atype:full")
     builder.button(text=t("btn_market_data", lang), callback_data="atype:market")
     builder.button(text=t("btn_docs", lang), callback_data="atype:docs")
+    builder.button(text=t("btn_documentation", lang), callback_data="atype:documentation")
     builder.button(text=t("btn_social", lang), callback_data="atype:social")
     builder.button(text=t("btn_team", lang), callback_data="atype:team")
     builder.button(text=t("btn_cancel", lang), callback_data="atype:cancel")

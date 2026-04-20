@@ -41,6 +41,12 @@ TEXTS: dict[str, dict[str, str]] = {
         "enter_mentions_count": "✏️ Введите количество упоминаний для анализа (1–200):",
         "enter_top_posts": "✏️ Введите количество важных постов для отображения (1–20):",
         "invalid_number": "❌ Некорректное значение. Введите целое число.",
+        "docs_settings_menu": (
+            "📋 <b>Настройки документации</b>\n\n"
+            "Максимум страниц для анализа: <b>{max_pages}</b>"
+        ),
+        "docs_pages_saved": "✅ Страниц документации: {n}",
+        "enter_docs_pages": "✏️ Введите максимальное количество страниц для анализа (1–100):",
         # Main keyboard buttons
         "btn_analyze": "🔍 Анализировать проект",
         "btn_portfolio": "📁 Мой портфель",
@@ -48,6 +54,7 @@ TEXTS: dict[str, dict[str, str]] = {
         # Settings keyboard buttons
         "btn_language": "🌐 Язык",
         "btn_social_settings": "📱 Соцсети",
+        "btn_docs_settings": "📋 Документация",
         "btn_back": "◀️ Назад",
         # Language keyboard buttons
         "btn_lang_ru": "🇷🇺 Русский",
@@ -56,6 +63,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_full_analysis": "🔄 Полный анализ",
         "btn_market_data": "📊 Рыночные данные",
         "btn_docs": "📄 Фандрейзинг и Токеномика",
+        "btn_documentation": "📋 Документация",
+        "btn_docs_link_yes": "✅ Да, есть ссылка",
+        "btn_docs_link_no": "🔍 Нет, найти самому",
+        "docs_link_question": "📋 Есть ли у тебя ссылка на документацию проекта?",
+        "docs_link_prompt": "🔗 Отправь ссылку на документацию:",
         "btn_social": "📱 Соцсети",
         "btn_team": "👥 Команда",
         "btn_cancel": "❌ Отмена",
@@ -102,6 +114,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "mode_full": "Полный анализ",
         "mode_market": "Рыночные данные",
         "mode_docs": "Фандрейзинг и Токеномика",
+        "mode_documentation": "Документация",
         "mode_social": "Соцсети",
         "mode_team": "Команда",
         # Module labels (progress message)
@@ -168,6 +181,12 @@ TEXTS: dict[str, dict[str, str]] = {
         "enter_mentions_count": "✏️ Enter the number of mentions to analyse (1–200):",
         "enter_top_posts": "✏️ Enter the number of top posts to display (1–20):",
         "invalid_number": "❌ Invalid value. Please enter a whole number.",
+        "docs_settings_menu": (
+            "📋 <b>Documentation settings</b>\n\n"
+            "Max pages to analyse: <b>{max_pages}</b>"
+        ),
+        "docs_pages_saved": "✅ Documentation pages: {n}",
+        "enter_docs_pages": "✏️ Enter the maximum number of pages to analyse (1–100):",
         # Main keyboard buttons
         "btn_analyze": "🔍 Analyze project",
         "btn_portfolio": "📁 My portfolio",
@@ -175,6 +194,7 @@ TEXTS: dict[str, dict[str, str]] = {
         # Settings keyboard buttons
         "btn_language": "🌐 Language",
         "btn_social_settings": "📱 Social media",
+        "btn_docs_settings": "📋 Documentation",
         "btn_back": "◀️ Back",
         # Language keyboard buttons
         "btn_lang_ru": "🇷🇺 Русский",
@@ -183,6 +203,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_full_analysis": "🔄 Full analysis",
         "btn_market_data": "📊 Market data",
         "btn_docs": "📄 Fundraising & Tokenomics",
+        "btn_documentation": "📋 Documentation",
+        "btn_docs_link_yes": "✅ Yes, I have a link",
+        "btn_docs_link_no": "🔍 No, find it yourself",
+        "docs_link_question": "📋 Do you have a link to the project documentation?",
+        "docs_link_prompt": "🔗 Send the documentation link:",
         "btn_social": "📱 Social media",
         "btn_team": "👥 Team",
         "btn_cancel": "❌ Cancel",
@@ -229,6 +254,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "mode_full": "Full analysis",
         "mode_market": "Market data",
         "mode_docs": "Fundraising & Tokenomics",
+        "mode_documentation": "Documentation",
         "mode_social": "Social media",
         "mode_team": "Team",
         # Module labels

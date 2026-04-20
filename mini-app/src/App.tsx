@@ -10,6 +10,7 @@ import FundsList from "./components/FundsList";
 import TeamVerification from "./components/TeamVerification";
 import ScoreGauge from "./components/ScoreGauge";
 import SocialAnalysis from "./components/SocialAnalysis";
+import DocumentationAnalysis from "./components/DocumentationAnalysis";
 
 // ─── Error Boundary ───────────────────────────────────────────────────────────
 
@@ -94,6 +95,12 @@ function ReportView({ reportId }: { reportId: number }) {
       <Section title="Overview">
         <ProjectCard report={report} />
       </Section>
+
+      {report.documentation && (
+        <Section title="Documentation">
+          <DocumentationAnalysis documentation={report.documentation} />
+        </Section>
+      )}
 
       <Section title="Risk Flags">
         <RiskFlags flags={report.risk_flags ?? []} />

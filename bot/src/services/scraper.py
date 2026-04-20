@@ -36,6 +36,11 @@ MAX_TEXT_BYTES = 100_000
 PAGE_TIMEOUT = 15.0
 PAGE_DELAY = 1.0
 
+_SKIP_EXTENSIONS = frozenset({
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
+    ".pdf", ".zip", ".tar", ".gz", ".mp4", ".mp3", ".woff", ".woff2", ".ttf", ".eot",
+})
+
 TOKENOMICS_KEYWORDS = frozenset({
     "tokenomics", "token distribution", "token allocation",
     "vesting", "supply", "emission", "unlock", "tge",
@@ -80,6 +85,7 @@ class ScrapedPage:
     title: str
     text_content: str
     tables: list[dict] = field(default_factory=list)
+    external_links: dict[str, str] = field(default_factory=dict)  # label → url
 
 
 # ------------------------------------------------------------------
@@ -202,6 +208,9 @@ def _collect_internal_links(
         full = urljoin(base_url, href)
         if not _is_same_domain(full, base_netloc):
             continue
+        path_lower = urlparse(full).path.lower()
+        if any(path_lower.endswith(ext) for ext in _SKIP_EXTENSIONS):
+            continue
         if keyword_filter:
             link_text = a.get_text(strip=True).lower()
             path = urlparse(full).path.lower()
@@ -209,6 +218,50 @@ def _collect_internal_links(
                 continue
         links.append(full.split("#")[0])  # Strip fragment
     return links
+
+
+_SOCIAL_DOMAINS = frozenset({
+    "twitter.com", "x.com", "t.me", "telegram.org", "discord.gg", "discord.com",
+    "github.com", "medium.com", "linkedin.com", "youtube.com", "instagram.com",
+    "reddit.com", "mirror.xyz", "substack.com", "docs.google.com",
+})
+
+_LABEL_OVERRIDES: dict[str, str] = {
+    "twitter.com": "twitter", "x.com": "twitter",
+    "t.me": "telegram", "telegram.org": "telegram",
+    "discord.gg": "discord", "discord.com": "discord",
+    "github.com": "github",
+    "medium.com": "medium",
+    "linkedin.com": "linkedin",
+    "youtube.com": "youtube",
+    "instagram.com": "instagram",
+    "reddit.com": "reddit",
+    "mirror.xyz": "mirror",
+}
+
+
+def _collect_external_links(html: str, base_netloc: str) -> dict[str, str]:
+    """Extract external HTTP(S) links from a page, keyed by a clean label."""
+    soup = BeautifulSoup(html, "lxml")
+    result: dict[str, str] = {}
+    for a in soup.find_all("a", href=True):
+        href: str = a["href"].strip()
+        if not href.startswith("http"):
+            continue
+        parsed = urlparse(href)
+        netloc = parsed.netloc.lower().removeprefix("www.")
+        if netloc == base_netloc:
+            continue
+        # Prefer known social domains; also accept any external link with anchor text
+        anchor = a.get_text(strip=True)
+        label = _LABEL_OVERRIDES.get(netloc) or anchor or netloc
+        label = label.lower().strip()
+        if not label:
+            continue
+        # Deduplicate: first occurrence wins
+        if label not in result:
+            result[label] = href.split("?")[0].rstrip("/")
+    return result
 
 
 # ------------------------------------------------------------------
@@ -261,6 +314,61 @@ class DocumentationScraper:
                     return urljoin(website_url, href)
 
         return None
+
+    async def scrape_docs_pages(self, docs_url: str, max_pages: int = MAX_PAGES) -> list[ScrapedPage]:
+        """
+        BFS crawl from docs_url within the same domain.
+        Collects all readable pages — no keyword filter.
+        Returns up to max_pages pages.
+        """
+        base_netloc = urlparse(docs_url).netloc
+        visited: set[str] = set()
+        queue: list[str] = [docs_url]
+        pages: list[ScrapedPage] = []
+        total_bytes = 0
+
+        while queue and len(pages) < max_pages and total_bytes < MAX_TEXT_BYTES:
+            url = queue.pop(0)
+            url_clean = url.split("#")[0]
+            if url_clean in visited:
+                continue
+            visited.add(url_clean)
+
+            await asyncio.sleep(PAGE_DELAY)
+            html = await _fetch_html(url, self._ua_counter)
+            if not html:
+                continue
+
+            text = _extract_text(html)
+            if not text.strip():
+                continue
+
+            total_bytes += len(text.encode("utf-8"))
+            soup_tmp = BeautifulSoup(html, "lxml")
+            title = _extract_title(soup_tmp)
+            tables = _extract_tables(html)
+            ext_links = _collect_external_links(html, base_netloc)
+            pages.append(ScrapedPage(
+                url=url,
+                title=title,
+                text_content=text[:20_000],
+                tables=tables,
+                external_links=ext_links,
+            ))
+            log.debug("scraper.docs_page_collected", url=url, title=title, ext_links=len(ext_links))
+
+            new_links = _collect_internal_links(html, url, base_netloc)
+            for link in new_links:
+                if link not in visited:
+                    queue.append(link)
+
+        log.info(
+            "scraper.crawl_done",
+            docs_url=docs_url,
+            pages_visited=len(visited),
+            docs_pages=len(pages),
+        )
+        return pages
 
     async def scrape_tokenomics_pages(self, docs_url: str) -> list[ScrapedPage]:
         """
