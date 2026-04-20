@@ -82,7 +82,11 @@ export default function VestingChart({
   const [tab, setTab] = useState<Tab>("chart");
 
   if (schedules.length === 0) {
-    return <p className="text-sm text-gray-500 italic">No vesting data available.</p>;
+    return (
+      <div className="bg-white rounded-xl p-4 shadow-sm">
+        <p className="text-sm text-gray-500 italic">No vesting data available.</p>
+      </div>
+    );
   }
 
   const tgeDate = tgeStartDate ? new Date(tgeStartDate) : null;

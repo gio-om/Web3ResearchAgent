@@ -7,11 +7,14 @@ interface TeamVerificationProps {
 export default function TeamVerification({ team }: TeamVerificationProps) {
   if (team.length === 0) {
     return (
-      <p className="text-sm text-gray-500 italic">No team data available.</p>
+      <div className="bg-white rounded-xl p-4 shadow-sm">
+        <p className="text-sm text-gray-500 italic">No team data available.</p>
+      </div>
     );
   }
 
   return (
+    <div className="bg-white rounded-xl p-4 shadow-sm">
     <div className="space-y-2">
       {team.map((member, i) => (
         <div
@@ -64,6 +67,7 @@ export default function TeamVerification({ team }: TeamVerificationProps) {
           </div>
         </div>
       ))}
+    </div>
     </div>
   );
 }

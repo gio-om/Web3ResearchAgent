@@ -25,11 +25,14 @@ const TEXT: Record<RiskFlag["type"], string> = {
 export default function RiskFlags({ flags }: RiskFlagsProps) {
   if (flags.length === 0) {
     return (
-      <p className="text-sm text-gray-500 italic">No risk flags detected.</p>
+      <div className="bg-white rounded-xl p-4 shadow-sm">
+        <p className="text-sm text-gray-500 italic">No risk flags detected.</p>
+      </div>
     );
   }
 
   return (
+    <div className="bg-white rounded-xl p-4 shadow-sm">
     <ul className="space-y-2">
       {flags.map((flag, i) => (
         <li
@@ -46,5 +49,6 @@ export default function RiskFlags({ flags }: RiskFlagsProps) {
         </li>
       ))}
     </ul>
+    </div>
   );
 }
