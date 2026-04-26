@@ -103,6 +103,9 @@ export interface DocumentationInfo {
   data_completeness?: "high" | "medium" | "low" | null;
   docs_url?: string | null;
   scraped_pages?: string[];
+  project_links?: Record<string, string>;
+  scraped_from_website?: boolean;
+  website_url?: string | null;
   error?: string | null;
 }
 

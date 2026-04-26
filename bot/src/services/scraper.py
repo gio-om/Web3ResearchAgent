@@ -126,6 +126,38 @@ async def _fetch_html(url: str, ua_counter: list[int]) -> str | None:
         return None
 
 
+async def _validate_external_links(links: dict[str, str]) -> dict[str, str]:
+    """Keep only links that respond with HTTP 2xx. Uses concurrent HEAD requests."""
+    if not links:
+        return {}
+
+    sem = asyncio.Semaphore(5)
+    headers = _base_headers(USER_AGENTS[0])
+
+    async def _check(label: str, url: str) -> tuple[str, str] | None:
+        async with sem:
+            try:
+                async with httpx.AsyncClient(
+                    timeout=5.0,
+                    follow_redirects=True,
+                    headers=headers,
+                ) as client:
+                    resp = await client.head(url)
+                    if 200 <= resp.status_code < 300:
+                        return label, url
+                    # Some servers reject HEAD — retry with GET (headers only)
+                    if resp.status_code in (405, 403):
+                        async with client.stream("GET", url) as gresp:
+                            if 200 <= gresp.status_code < 300:
+                                return label, url
+            except Exception:
+                pass
+        return None
+
+    results = await asyncio.gather(*(_check(l, u) for l, u in links.items()))
+    return dict(r for r in results if r is not None)
+
+
 def _extract_title(soup: BeautifulSoup) -> str:
     tag = soup.find("title")
     if tag:
@@ -226,6 +258,32 @@ _SOCIAL_DOMAINS = frozenset({
     "reddit.com", "mirror.xyz", "substack.com", "docs.google.com",
 })
 
+# Hosting/platform domains whose links appear as footer branding (e.g. "Powered by GitBook").
+# Matched against netloc after stripping "www." prefix.
+_PLATFORM_DOMAINS = frozenset({
+    "gitbook.com",           # "Powered by GitBook" footer badge
+    "notion.so",             # Notion platform branding
+    "notionhq.com",
+    "vercel.com",            # hosting
+    "netlify.com",           # hosting
+    "webflow.com", "webflow.io",
+    "wordpress.com",
+    "wixsite.com",
+    "squarespace.com",
+    "ghost.io",
+    "readme.com", "readme.io",  # ReadMe docs platform
+    "intercom.io",           # chat widget
+    "crisp.chat",
+    "zendesk.com",
+    "hubspot.com",
+    "typeform.com",
+    "cloudflare.com",
+    "amazonaws.com",
+    "googletagmanager.com",
+    "google-analytics.com",
+    "analytics.google.com",
+})
+
 _LABEL_OVERRIDES: dict[str, str] = {
     "twitter.com": "twitter", "x.com": "twitter",
     "t.me": "telegram", "telegram.org": "telegram",
@@ -251,6 +309,9 @@ def _collect_external_links(html: str, base_netloc: str) -> dict[str, str]:
         parsed = urlparse(href)
         netloc = parsed.netloc.lower().removeprefix("www.")
         if netloc == base_netloc:
+            continue
+        # Skip platform homepage links (e.g. gitbook.com), but keep project pages (gitbook.com/projectname)
+        if netloc in _PLATFORM_DOMAINS and parsed.path.strip("/") == "":
             continue
         # Prefer known social domains; also accept any external link with anchor text
         anchor = a.get_text(strip=True)
@@ -302,20 +363,42 @@ class DocumentationScraper:
                 return url
             await asyncio.sleep(0.3)
 
-        # Fallback: scan homepage for docs/whitepaper links
+        # Fallback: scan homepage for docs-related links
         html = await _fetch_html(website_url, self._ua_counter)
         if html:
             soup = BeautifulSoup(html, "lxml")
+            _docs_keywords = frozenset({
+                "docs", "documentation", "whitepaper", "litepaper",
+                "gitbook", "wiki", "learn", "guide", "knowledge",
+                "notion", "confluence", "readme",
+            })
+            candidates_from_page: list[str] = []
             for a in soup.find_all("a", href=True):
-                href: str = a["href"]
+                href: str = a["href"].strip()
+                if not href or href.startswith("#") or href.startswith("mailto:"):
+                    continue
                 text = a.get_text(strip=True).lower()
                 href_l = href.lower()
-                if any(kw in href_l or kw in text for kw in ["docs", "whitepaper", "gitbook", "litepaper"]):
-                    return urljoin(website_url, href)
+                if any(kw in href_l or kw in text for kw in _docs_keywords):
+                    full = urljoin(website_url, href)
+                    if full not in candidates_from_page:
+                        candidates_from_page.append(full)
+
+            for url in candidates_from_page[:5]:
+                page_html = await _fetch_html(url, self._ua_counter)
+                if page_html and len(page_html) > 1000:
+                    log.info("scraper.docs_discovered_from_homepage", url=url)
+                    return url
+                await asyncio.sleep(0.3)
 
         return None
 
-    async def scrape_docs_pages(self, docs_url: str, max_pages: int = MAX_PAGES) -> list[ScrapedPage]:
+    async def scrape_docs_pages(
+        self,
+        docs_url: str,
+        max_pages: int = MAX_PAGES,
+        on_page=None,  # Optional[Callable[[str], Awaitable[None]]]
+    ) -> list[ScrapedPage]:
         """
         BFS crawl from docs_url within the same domain.
         Collects all readable pages — no keyword filter.
@@ -356,6 +439,11 @@ class DocumentationScraper:
                 external_links=ext_links,
             ))
             log.debug("scraper.docs_page_collected", url=url, title=title, ext_links=len(ext_links))
+            if on_page:
+                try:
+                    await on_page(url)
+                except Exception:
+                    pass
 
             new_links = _collect_internal_links(html, url, base_netloc)
             for link in new_links:

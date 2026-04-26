@@ -2,11 +2,12 @@
 Standalone debug runner for documentation analysis.
 
 Usage (run from web3-dd-bot/):
-  python debug_documentation.py <project_name> [--docs <url>] [--lang ru|en]
+  python debug_documentation.py <project_name> [--docs <url>] [--website <url>] [--lang ru|en]
 
 Examples:
   python debug_documentation.py "Celestia"
   python debug_documentation.py "Arbitrum" --docs https://docs.arbitrum.io
+  python debug_documentation.py "Pixie Chess" --website https://pixiechess.io
   python debug_documentation.py "Sui" --lang en
 
 Output: full documentation_data JSON printed to stdout.
@@ -88,6 +89,7 @@ def _parse_args():
 
     project_name = args[0]
     docs_url = ""
+    website_url = ""
     lang = "ru"
 
     i = 1
@@ -95,29 +97,40 @@ def _parse_args():
         if args[i] == "--docs" and i + 1 < len(args):
             docs_url = args[i + 1]
             i += 2
+        elif args[i] == "--website" and i + 1 < len(args):
+            website_url = args[i + 1]
+            i += 2
         elif args[i] == "--lang" and i + 1 < len(args):
             lang = args[i + 1]
             i += 2
         else:
             i += 1
 
-    return project_name, docs_url, lang
+    return project_name, docs_url, website_url, lang
 
 
 # ── 5. Main ───────────────────────────────────────────────────────────────────
 async def main():
-    project_name, docs_url, lang = _parse_args()
+    project_name, docs_url, website_url, lang = _parse_args()
 
     print(f"\n{'='*60}")
     print(f"Project : {project_name}")
     print(f"Docs URL: {docs_url or '(auto-discover)'}")
+    if website_url:
+        print(f"Website : {website_url}")
     print(f"Lang    : {lang}")
     print(f"{'='*60}\n")
+
+    project_urls: dict = {}
+    if docs_url:
+        project_urls["docs"] = docs_url
+    if website_url:
+        project_urls["website"] = website_url
 
     state = {
         "project_name": project_name,
         "project_query": project_name,
-        "project_urls": {"docs": docs_url} if docs_url else {},
+        "project_urls": project_urls,
         "lang": lang,
         "enabled_modules": ["documentation"],
         "errors": [],

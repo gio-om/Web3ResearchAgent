@@ -78,6 +78,7 @@ async def _do_edit() -> None:
             chat_id=chat_id,
             message_id=message_id,
             text=_build_progress_text(),
+            disable_web_page_preview=True,
         )
     except Exception:
         pass

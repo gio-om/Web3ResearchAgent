@@ -170,14 +170,6 @@ function IconLinktree() {
   );
 }
 
-function IconLink() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
-  );
-}
 
 /* ──────────────────────────────────────────────────────────
    Icon + colour mapping
@@ -209,12 +201,13 @@ const LINK_CONFIG: Record<string, LinkConfig> = {
   cryptorank:    { label: "CryptoRank",    icon: <IconCryptoRank />,    color: "text-white"      },
 };
 
-const LINK_ORDER = [
+// Only "social" keys shown in this component — docs/technical links go to DocumentationAnalysis
+const SOCIAL_ORDER = [
   "website", "twitter", "telegram", "discord",
-  "docs", "gitbook", "whitepaper",
   "cryptorank", "coingecko", "coinmarketcap",
   "github", "linkedin", "medium", "blog",
   "reddit", "youtube", "linktree",
+  "docs",
 ];
 
 interface ProjectLinksProps {
@@ -222,20 +215,11 @@ interface ProjectLinksProps {
 }
 
 export default function ProjectLinks({ links }: ProjectLinksProps) {
-  const known = new Set(LINK_ORDER);
-
-  const entries = LINK_ORDER
+  const entries = SOCIAL_ORDER
     .filter((key) => links[key])
     .map((key) => ({ key, url: links[key], cfg: LINK_CONFIG[key] }));
 
-  const extra = Object.entries(links)
-    .filter(([k]) => !known.has(k) && links[k])
-    .map(([key, url]) => ({
-      key, url,
-      cfg: { label: key, icon: <IconLink />, color: "text-gray-600" },
-    }));
-
-  const all = [...entries, ...extra];
+  const all = entries;
   if (all.length === 0) return null;
 
   return (

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { DocumentationInfo } from "../types";
 
 interface Props {
@@ -24,6 +25,7 @@ function fmt(n: number | null | undefined): string {
 }
 
 export default function DocumentationAnalysis({ documentation }: Props) {
+  const [linksOpen, setLinksOpen] = useState(false);
   if (!documentation) {
     return (
       <div className="bg-white rounded-xl p-4 shadow-sm">
@@ -46,21 +48,35 @@ export default function DocumentationAnalysis({ documentation }: Props) {
   const conditions = documentation.unusual_conditions ?? [];
   const pages = documentation.scraped_pages ?? [];
   const features = documentation.key_features ?? [];
+  const projectLinks = Object.entries(documentation.project_links ?? {});
 
   return (
     <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
-      {/* Top row: docs link + completeness badge */}
+      {/* Top row: docs/website link + completeness badge */}
       <div className="flex items-start justify-between gap-2">
         {documentation.docs_url ? (
           <a
             href={documentation.docs_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-xs text-indigo-600 hover:underline"
+            className="flex items-center gap-2 text-sm text-indigo-600 hover:underline"
           >
-            📄 {documentation.docs_url.length > 45
+            <span className="text-base">📄</span>
+            {documentation.docs_url.length > 45
               ? documentation.docs_url.slice(0, 45) + "…"
               : documentation.docs_url}
+          </a>
+        ) : documentation.scraped_from_website && documentation.website_url ? (
+          <a
+            href={documentation.website_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 text-sm text-orange-500 hover:underline"
+          >
+            <span className="text-base">🌐</span>
+            {documentation.website_url.length > 45
+              ? documentation.website_url.slice(0, 45) + "…"
+              : documentation.website_url}
           </a>
         ) : <span />}
         {completeness && (
@@ -69,6 +85,14 @@ export default function DocumentationAnalysis({ documentation }: Props) {
           </span>
         )}
       </div>
+
+      {/* Fallback notice */}
+      {documentation.scraped_from_website && (
+        <div className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-700">
+          <span className="shrink-0 mt-0.5">ℹ️</span>
+          <span>Документация не найдена — собрана общая информация с сайта проекта</span>
+        </div>
+      )}
 
       {/* Project description */}
       {documentation.project_description && (
@@ -140,10 +164,41 @@ export default function DocumentationAnalysis({ documentation }: Props) {
       )}
 
       {/* No issues found */}
-      {conditions.length === 0 && documentation.docs_url && (
+      {conditions.length === 0 && (documentation.docs_url || documentation.scraped_from_website) && (
         <p className="text-xs text-green-600 flex items-center gap-1">
           <span>✅</span> No unusual conditions detected
         </p>
+      )}
+
+      {/* Collapsible project links from docs */}
+      {projectLinks.length > 0 && (
+        <div className="border-t border-gray-100 pt-2">
+          <button
+            onClick={() => setLinksOpen((v) => !v)}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors w-full text-left"
+          >
+            <span className="transition-transform duration-200" style={{ display: "inline-block", transform: linksOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+            Project links from docs ({projectLinks.length})
+          </button>
+          {linksOpen && (
+            <ul className="mt-2 space-y-1.5">
+              {projectLinks.map(([label, url]) => (
+                <li key={label}>
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-xs text-indigo-600 hover:underline min-w-0"
+                  >
+                    <span className="shrink-0 text-gray-400">🔗</span>
+                    <span className="font-medium capitalize text-gray-600 shrink-0 max-w-[45%] truncate">{label}:</span>
+                    <span className="break-all min-w-0">{url.length > 50 ? url.slice(0, 50) + "…" : url}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );

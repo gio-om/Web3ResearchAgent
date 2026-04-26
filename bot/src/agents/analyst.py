@@ -312,14 +312,18 @@ async def analyst_node(state: dict) -> dict:
         new_sources: list[str] = []
         if cr:
             new_sources.append("Cryptorank")
-        if coingecko:
+        # CoinGecko: fetched by aggregator OR independently by social node
+        if coingecko or eff_social.get("coingecko_summary"):
             new_sources.append("CoinGecko")
         if documentation_data.get("docs_url"):
             new_sources.append("Project Documentation")
+        elif documentation_data.get("scraped_from_website"):
+            new_sources.append("Project Website")
         if eff_social.get("handle"):
             new_sources.append("Twitter/X")
-        if eff_team.get("members"):
-            new_sources.append("Team Page")
+        # Team: add source when team page was found, even if members list is empty
+        if eff_team.get("members") or eff_team.get("team_page_url"):
+            new_sources.append("Project Website")
         # Preserve sources from previous report
         prev_sources = prev_report.get("data_sources") or []
         data_sources = list(dict.fromkeys(prev_sources + new_sources))  # dedup, preserve order
@@ -335,13 +339,9 @@ async def analyst_node(state: dict) -> dict:
         for key, url in project_urls.items():
             if url:
                 project_links[key] = url
-        # Docs URL from documentation agent
+        # Docs URL from documentation agent (single canonical link in socials)
         if documentation_data.get("docs_url") and not project_links.get("docs"):
             project_links["docs"] = documentation_data["docs_url"]
-        # External links discovered in documentation (social/official links page)
-        for label, url in (documentation_data.get("project_links") or {}).items():
-            if label not in project_links:
-                project_links[label] = url
         # Always include CryptoRank page
         if project_slug and not project_links.get("cryptorank"):
             project_links["cryptorank"] = f"https://cryptorank.io/price/{project_slug}"
@@ -414,6 +414,9 @@ async def analyst_node(state: dict) -> dict:
                 "data_completeness": documentation_data.get("data_completeness"),
                 "docs_url": documentation_data.get("docs_url"),
                 "scraped_pages": documentation_data.get("scraped_pages", []),
+                "project_links": documentation_data.get("project_links", {}),
+                "scraped_from_website": documentation_data.get("scraped_from_website", False),
+                "website_url": documentation_data.get("website_url"),
                 "error": documentation_data.get("error"),
             }
 
