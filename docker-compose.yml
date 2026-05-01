@@ -19,6 +19,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      omniroute:
+        condition: service_started
     restart: unless-stopped
     ports:
       - "8080:8080"  # FastAPI для Mini App

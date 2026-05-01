@@ -49,13 +49,36 @@ export interface InvestorInfo {
   portfolio_notable: string[];
 }
 
+export interface ExperienceEntry {
+  position: string;
+  company: string;
+  period?: string;
+  description?: string;
+}
+
+export interface EducationEntry {
+  school: string;
+  degree?: string;
+  field?: string;
+  period?: string;
+}
+
 export interface TeamMember {
   name: string;
   role: string;
   linkedin_url: string | null;
-  twitter_url: string | null;
+  twitter_url?: string | null;
   verified: boolean;
-  previous_projects: string[];
+  location?: string;
+  bio?: string;
+  experience?: ExperienceEntry[];
+  education?: EducationEntry[];
+  top_skills?: string[];
+  photo?: string;
+  previous_companies?: string[];
+  has_tier1_background?: boolean;
+  profile_notes?: string;
+  source?: string;
 }
 
 export interface TopPost {

@@ -212,6 +212,81 @@ Content:
         except LLMError:
             return []
 
+    async def extract_team_from_search_results(
+        self, search_results: list[dict], project_name: str
+    ) -> list[dict]:
+        """
+        Extract structured team members from DDG search result titles/snippets.
+        Each result: {title, snippet, url} from a LinkedIn profile search.
+        """
+        if not search_results:
+            return []
+
+        lines = []
+        for i, r in enumerate(search_results, 1):
+            lines.append(
+                f"{i}. Title: {r['title']}\n"
+                f"   Snippet: {r['snippet']}\n"
+                f"   URL: {r['url']}"
+            )
+        block = "\n\n".join(lines)
+
+        prompt = f"""These are web search results for LinkedIn profiles of people working at crypto project "{project_name}".
+Each result is a LinkedIn profile page.
+
+Extract only people who currently work at "{project_name}" (ignore past employees).
+
+Return JSON array (empty [] if none found):
+[
+  {{
+    "name": "<full name>",
+    "role": "<current job title>",
+    "linkedin_url": "<linkedin profile URL>",
+    "previous_companies": ["<company name>"],
+    "profile_notes": "<any notable background from snippet>"
+  }}
+]
+
+Search results:
+{block}"""
+
+        raw = await self._call(prompt)
+        try:
+            result = _parse_json(raw, context="extract_team_from_search_results")
+            return result if isinstance(result, list) else []
+        except LLMError:
+            return []
+
+    async def extract_linkedin_company_data(self, page_content: str) -> dict:
+        if not page_content.strip():
+            return {}
+
+        prompt = f"""Extract company information from this LinkedIn company page content.
+
+Return JSON:
+{{
+  "employee_count_range": "<e.g. '51-200' or null>",
+  "members": [
+    {{
+      "name": "<full name>",
+      "role": "<job title>",
+      "linkedin_url": "<URL or null>",
+      "previous_companies": ["<company name>"],
+      "profile_notes": "<any notable background>"
+    }}
+  ],
+  "company_description": "<brief description or null>"
+}}
+
+Content:
+{page_content[:15_000]}"""
+        raw = await self._call(prompt)
+        try:
+            result = _parse_json(raw, context="extract_linkedin_company_data")
+            return result if isinstance(result, dict) else {}
+        except LLMError:
+            return {}
+
     async def generate_final_report(
         self,
         project_name: str,

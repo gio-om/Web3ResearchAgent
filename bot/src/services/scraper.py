@@ -48,7 +48,7 @@ TOKENOMICS_KEYWORDS = frozenset({
 })
 
 # Keywords that suggest a link leads to team/about info
-TEAM_KEYWORDS = frozenset({"team", "about", "founders", "people", "careers"})
+TEAM_KEYWORDS = frozenset({"team", "about", "founders", "people"})
 
 # Subdomains / path patterns tried when looking for docs
 DOCS_URL_CANDIDATES = [
