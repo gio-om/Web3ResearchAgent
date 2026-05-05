@@ -1,11 +1,10 @@
 """
-Team agent: finds and verifies project team members via public web search.
+Team agent: finds and verifies project team members via Apify LinkedIn scraping.
 
 Strategy:
-1. Search DuckDuckGo for LinkedIn profiles of senior people at the project
-   (Founders, C-Suite, Heads, technical leads, etc.)
-2. Also scrape the LinkedIn company page if the URL is known
-3. Merge all sources, deduplicate by name, apply risk flags
+1. Fetch LinkedIn profiles via Apify actor (structured data, no LLM needed)
+2. Website team page as a fallback when Apify returns nothing
+3. Deduplicate by name, apply risk flags
 """
 import asyncio
 import structlog
@@ -22,15 +21,10 @@ TIER1_COMPANIES = frozenset({
 
 
 _STEPS: dict[str, dict[str, str]] = {
-    "resolve_urls":       {"ru": "Ищем сайт проекта...",                              "en": "Searching project website..."},
-    "resolve_company":    {"ru": "Определяем точное название компании в LinkedIn...",  "en": "Resolving exact LinkedIn company name..."},
-    "company_found":      {"ru": "Компания на LinkedIn: {name}",                       "en": "LinkedIn company: {name}"},
-    "apify_search":       {"ru": "Запрашиваем профили через Apify...",                 "en": "Fetching profiles via Apify..."},
-    "search_members":     {"ru": "Ищем участников команды...",                         "en": "Searching team members..."},
-    "search_found":       {"ru": "Найдено {n} LinkedIn профилей, анализируем...",      "en": "Found {n} LinkedIn profiles, analysing..."},
-    "linkedin_page":      {"ru": "Анализируем LinkedIn страницу проекта...",           "en": "Analysing project LinkedIn page..."},
-    "find_team_page":     {"ru": "Ищем страницу команды на сайте...",                  "en": "Looking for team page on website..."},
-    "read_team_page":     {"ru": "Читаем страницу команды...",                         "en": "Reading team page..."},
+    "resolve_urls":   {"ru": "Ищем сайт проекта...",               "en": "Searching project website..."},
+    "apify_search":   {"ru": "Запрашиваем профили через Apify...",  "en": "Fetching profiles via Apify..."},
+    "find_team_page": {"ru": "Ищем страницу команды на сайте...",   "en": "Looking for team page on website..."},
+    "read_team_page": {"ru": "Читаем страницу команды...",          "en": "Reading team page..."},
 }
 
 
@@ -139,62 +133,21 @@ async def team_node(state: dict) -> dict:
     try:
         from src.services.scraper import DocumentationScraper
         from src.services.llm import LLMService
-        from src.services.search import search_linkedin_team, resolve_linkedin_company_name
-        from src.config import settings
+        from src.services.apify_search import search_linkedin_team_apify
 
         scraper = DocumentationScraper()
         llm = LLMService()
 
-        # ── 1. Resolve exact LinkedIn company name ────────────────────
-        await push_step("team", _step("resolve_company", lang))
         linkedin_company_url = project_urls.get("linkedin", "")
-        company_name = await resolve_linkedin_company_name(project_name, linkedin_company_url)
-        if company_name != project_name:
-            await push_step("team", _step("company_found", lang, name=company_name))
-        log.info("team.company_name", project=project_name, linkedin_name=company_name)
-
-        # ── 2. Search LinkedIn profiles ───────────────────────────────
-        mode = settings.TEAM_SEARCH_MODE
         members: list[dict] = []
 
-        if mode == "apify":
-            from src.services.apify_search import search_linkedin_team_apify
-            await push_step("team", _step("apify_search", lang))
-            apify_members = await search_linkedin_team_apify(company_name, linkedin_company_url)
-            members = _merge_members(members, apify_members, source="apify", lang=lang)
-            log.info("team.apify_done", project=project_name, count=len(members))
-        else:
-            await push_step("team", _step("search_members", lang))
-            search_results = await search_linkedin_team(company_name)
-            log.info("team.search_done", project=project_name, mode=mode, results=len(search_results))
-            if search_results:
-                await push_step("team", _step("search_found", lang, n=len(search_results)))
-                search_members_raw = await llm.extract_team_from_search_results(
-                    search_results, project_name, lang=lang
-                )
-                members = _merge_members(members, search_members_raw, source="web_search", lang=lang)
-                log.info("team.search_members_extracted", project=project_name, count=len(members))
+        # ── 1. Fetch profiles via Apify ───────────────────────────────
+        await push_step("team", _step("apify_search", lang))
+        apify_members = await search_linkedin_team_apify(project_name, linkedin_company_url)
+        members = _merge_members(members, apify_members, source="apify", lang=lang)
+        log.info("team.apify_done", project=project_name, count=len(members))
 
-        # ── 3. LinkedIn company page (brave mode only) ────────────────
-        linkedin_meta: dict = {}
-        if mode != "apify" and linkedin_company_url:
-            await push_step("team", _step("linkedin_page", lang))
-            linkedin_page = await scraper.scrape_page(linkedin_company_url)
-            if linkedin_page and linkedin_page.text_content:
-                linkedin_meta = await llm.extract_linkedin_company_data(
-                    linkedin_page.text_content[:20_000], lang=lang
-                )
-                members = _merge_members(
-                    members, linkedin_meta.get("members", []), source="linkedin_company", lang=lang
-                )
-                log.info(
-                    "team.linkedin_scraped",
-                    project=project_name,
-                    employees=linkedin_meta.get("employee_count_range"),
-                    new_members=len(linkedin_meta.get("members", [])),
-                )
-
-        # ── 4. Website team page (fallback) ──────────────────────────
+        # ── 2. Website team page (fallback when Apify returns nothing) ─
         website = project_urls.get("website")
         team_page_url: str | None = None
         if website and not members:
@@ -212,8 +165,6 @@ async def team_node(state: dict) -> dict:
             "flags": _build_flags(members, lang=lang),
             "team_page_url": team_page_url,
             "linkedin_url": linkedin_company_url,
-            "linkedin_employee_count_range": linkedin_meta.get("employee_count_range"),
-            "linkedin_company_description": linkedin_meta.get("company_description"),
         }
 
     except Exception as e:
@@ -308,9 +259,8 @@ if __name__ == "__main__":
             _i += 1
 
     from src.config import settings as _settings
-    print(f"TEAM_SEARCH_MODE = {_settings.TEAM_SEARCH_MODE}")
-    print(f"APIFY_ACTOR_ID   = {_settings.APIFY_ACTOR_ID}")
-    print(f"APIFY_TOKEN      = {'SET' if _settings.APIFY_TOKEN else 'NOT SET'}")
+    print(f"APIFY_ACTOR_ID = {_settings.APIFY_ACTOR_ID}")
+    print(f"APIFY_TOKEN    = {'SET' if _settings.APIFY_TOKEN else 'NOT SET'}")
     print(f"{'='*60}\nProject: {_project}\n{'='*60}\n")
 
     _state = {
