@@ -1,9 +1,12 @@
 import type { Report } from "../types";
 import ScoreGauge from "./ScoreGauge";
 import { formatUsd } from "../utils/format";
+import { t } from "../i18n";
+import type { Lang } from "../i18n";
 
 interface ProjectCardProps {
   report: Report;
+  lang: Lang;
 }
 
 const REC_STYLE: Record<Report["recommendation"], string> = {
@@ -13,7 +16,7 @@ const REC_STYLE: Record<Report["recommendation"], string> = {
   Avoid: "bg-red-100 text-red-800",
 };
 
-export default function ProjectCard({ report }: ProjectCardProps) {
+export default function ProjectCard({ report, lang }: ProjectCardProps) {
   const { fdv_usd, market_cap_usd } = report.coingecko_summary;
 
   return (
@@ -38,7 +41,7 @@ export default function ProjectCard({ report }: ProjectCardProps) {
           <p className="font-semibold text-gray-800">{formatUsd(fdv_usd, "N/A")}</p>
         </div>
         <div className="rounded-lg bg-gray-50 px-3 py-2">
-          <p className="text-xs text-gray-500">Market Cap</p>
+          <p className="text-xs text-gray-500">{t("market_cap", lang)}</p>
           <p className="font-semibold text-gray-800">
             {formatUsd(market_cap_usd, "N/A")}
           </p>
@@ -54,7 +57,7 @@ export default function ProjectCard({ report }: ProjectCardProps) {
       {(report.strengths?.length ?? 0) > 0 && (
         <div className="mt-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-            Strengths
+            {t("strengths", lang)}
           </p>
           <ul className="mt-1 space-y-0.5">
             {report.strengths.map((s, i) => (
@@ -69,7 +72,7 @@ export default function ProjectCard({ report }: ProjectCardProps) {
       {(report.weaknesses?.length ?? 0) > 0 && (
         <div className="mt-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-            Weaknesses
+            {t("weaknesses", lang)}
           </p>
           <ul className="mt-1 space-y-0.5">
             {report.weaknesses.map((w, i) => (

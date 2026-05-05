@@ -6,6 +6,7 @@ import structlog
 log = structlog.get_logger()
 
 DOCUMENTATION_PROMPT = """You are a crypto analyst. Read the project documentation below and extract the most important and interesting information about the project.
+{lang_instruction}
 Return ONLY valid JSON, no markdown fences, no extra text.
 
 {{
@@ -23,6 +24,7 @@ Documentation text:
 """
 
 WEBSITE_PROMPT = """You are a crypto analyst. The text below was collected from the project's main website (official documentation was not found). Extract as much relevant project information as possible.
+{lang_instruction}
 Return ONLY valid JSON, no markdown fences, no extra text.
 
 {{
@@ -38,6 +40,13 @@ Return ONLY valid JSON, no markdown fences, no extra text.
 Website content:
 {text}
 """
+
+def _lang_instruction(lang: str) -> str:
+    return (
+        "Write project_description, key_features, and unusual_conditions in Russian."
+        if lang == "ru" else
+        "Write project_description, key_features, and unusual_conditions in English."
+    )
 
 _STEPS: dict[str, dict[str, str]] = {
     "search_links":      {"ru": "Ищем ссылки проекта...",                       "en": "Searching project links..."},
@@ -134,7 +143,9 @@ async def documentation_node(state: dict) -> dict:
 
                 await push_step("documentation", _step("analysing", lang, n=len(pages)))
                 result = await llm.analyze_documentation(
-                    task_prompt=DOCUMENTATION_PROMPT.format(text=combined_text),
+                    task_prompt=DOCUMENTATION_PROMPT.format(
+                        lang_instruction=_lang_instruction(lang), text=combined_text
+                    ),
                 )
                 documentation_data = result
                 documentation_data["scraped_pages"] = [p.url for p in pages]
@@ -161,7 +172,9 @@ async def documentation_node(state: dict) -> dict:
             if combined_text.strip():
                 await push_step("documentation", _step("analysing_website", lang, n=len(pages)))
                 result = await llm.analyze_documentation(
-                    task_prompt=WEBSITE_PROMPT.format(text=combined_text),
+                    task_prompt=WEBSITE_PROMPT.format(
+                        lang_instruction=_lang_instruction(lang), text=combined_text
+                    ),
                 )
                 documentation_data = result
                 documentation_data["scraped_pages"] = [p.url for p in pages]

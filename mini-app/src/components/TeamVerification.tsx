@@ -1,8 +1,11 @@
 import { useState } from "react";
 import type { TeamMember } from "../types";
+import { t } from "../i18n";
+import type { Lang } from "../i18n";
 
 interface TeamVerificationProps {
   team: TeamMember[];
+  lang: Lang;
 }
 
 function roleScore(role: string): number {
@@ -180,11 +183,11 @@ function AllMemberRow({ member }: { member: TeamMember }) {
   );
 }
 
-export default function TeamVerification({ team }: TeamVerificationProps) {
+export default function TeamVerification({ team, lang }: TeamVerificationProps) {
   if (team.length === 0) {
     return (
       <div className="rounded-xl bg-white p-4 shadow-sm">
-        <p className="text-sm italic text-gray-500">No team data available.</p>
+        <p className="text-sm italic text-gray-500">{t("no_team_data", lang)}</p>
       </div>
     );
   }
@@ -201,7 +204,7 @@ export default function TeamVerification({ team }: TeamVerificationProps) {
       {team.length > 0 && (
         <div className="rounded-xl border border-gray-100 bg-white p-3 shadow-sm">
           <p className="mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-            All members ({team.length})
+            {t("all_members", lang)} ({team.length})
           </p>
           <div className="space-y-1.5">
             {sorted.map((m, i) => (

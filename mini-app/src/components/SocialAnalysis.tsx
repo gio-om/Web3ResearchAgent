@@ -1,9 +1,12 @@
 import type { SocialData, TopPost } from "../types";
 import ProjectLinks from "./ProjectLinks";
+import { t } from "../i18n";
+import type { Lang } from "../i18n";
 
 interface SocialAnalysisProps {
   social?: SocialData;
   links?: Record<string, string>;
+  lang: Lang;
 }
 
 function fmt(n: number): string {
@@ -12,8 +15,7 @@ function fmt(n: number): string {
   return String(n);
 }
 
-function SentimentBar({ score }: { score: number }) {
-  // score: -1..1 → position 0..100%
+function SentimentBar({ score, lang }: { score: number; lang: Lang }) {
   const pct = Math.round(((score + 1) / 2) * 100);
   const color =
     score >= 0.3 ? "bg-green-500" :
@@ -22,7 +24,7 @@ function SentimentBar({ score }: { score: number }) {
 
   return (
     <div className="flex items-center gap-2">
-      <span className="w-14 text-xs text-gray-400">Sentiment</span>
+      <span className="w-14 text-xs text-gray-400">{t("sentiment", lang)}</span>
       <div className="relative h-2 flex-1 rounded-full bg-gray-100">
         <div
           className={`absolute h-2 w-2 -translate-x-1/2 rounded-full ${color}`}
@@ -53,7 +55,7 @@ function TagList({ items, icon }: { items: string[]; icon: string }) {
   );
 }
 
-export default function SocialAnalysis({ social, links }: SocialAnalysisProps) {
+export default function SocialAnalysis({ social, links, lang }: SocialAnalysisProps) {
   const hasLinks = Object.keys(links ?? {}).length > 0;
   const hasTwitter = social?.handle || (social?.followers_count ?? 0) > 0;
   const hasAnalysis =
@@ -64,7 +66,7 @@ export default function SocialAnalysis({ social, links }: SocialAnalysisProps) {
 
   if (!hasLinks && !hasTwitter && !hasAnalysis) {
     return (
-      <p className="text-xs italic text-gray-400">No social data available.</p>
+      <p className="text-xs italic text-gray-400">{t("no_social_data", lang)}</p>
     );
   }
 
@@ -91,7 +93,7 @@ export default function SocialAnalysis({ social, links }: SocialAnalysisProps) {
                   </p>
                 )}
                 {social?.tweet_count != null && (
-                  <p className="text-xs text-gray-400">{social.tweet_count} tweets analysed</p>
+                  <p className="text-xs text-gray-400">{social.tweet_count} {t("tweets_analysed", lang)}</p>
                 )}
               </div>
             </div>
@@ -100,7 +102,7 @@ export default function SocialAnalysis({ social, links }: SocialAnalysisProps) {
                 <p className="text-base font-bold text-gray-800">
                   {fmt(social.followers_count)}
                 </p>
-                <p className="text-xs text-gray-400">followers</p>
+                <p className="text-xs text-gray-400">{t("followers", lang)}</p>
               </div>
             )}
           </div>
@@ -109,14 +111,14 @@ export default function SocialAnalysis({ social, links }: SocialAnalysisProps) {
           {(social?.engagement_rate != null) && (
             <div className="flex flex-wrap gap-2">
               <div className="rounded-lg bg-gray-50 px-3 py-1.5 text-center">
-                <p className="text-xs text-gray-400">Engagement</p>
+                <p className="text-xs text-gray-400">{t("engagement", lang)}</p>
                 <p className="text-sm font-semibold text-gray-700">
                   {(social.engagement_rate * 100).toFixed(2)}%
                 </p>
               </div>
               {social?.avg_views_per_tweet != null && social.avg_views_per_tweet > 0 && (
                 <div className="rounded-lg bg-gray-50 px-3 py-1.5 text-center">
-                  <p className="text-xs text-gray-400">Avg views</p>
+                  <p className="text-xs text-gray-400">{t("avg_views", lang)}</p>
                   <p className="text-sm font-semibold text-gray-700">
                     {fmt(social.avg_views_per_tweet)}
                   </p>
@@ -124,7 +126,7 @@ export default function SocialAnalysis({ social, links }: SocialAnalysisProps) {
               )}
               {social?.following_count != null && (
                 <div className="rounded-lg bg-gray-50 px-3 py-1.5 text-center">
-                  <p className="text-xs text-gray-400">Following</p>
+                  <p className="text-xs text-gray-400">{t("following", lang)}</p>
                   <p className="text-sm font-semibold text-gray-700">
                     {fmt(social.following_count)}
                   </p>
@@ -135,7 +137,7 @@ export default function SocialAnalysis({ social, links }: SocialAnalysisProps) {
 
           {/* Sentiment bar */}
           {social?.sentiment_score != null && (
-            <SentimentBar score={social.sentiment_score} />
+            <SentimentBar score={social.sentiment_score} lang={lang} />
           )}
 
           {/* Overall assessment */}
@@ -149,7 +151,7 @@ export default function SocialAnalysis({ social, links }: SocialAnalysisProps) {
           {(social?.top_posts?.length ?? 0) > 0 && (
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                Top posts
+                {t("top_posts", lang)}
               </p>
               <div className="space-y-2">
                 {social!.top_posts!.map((post: TopPost, i: number) => (
@@ -182,7 +184,7 @@ export default function SocialAnalysis({ social, links }: SocialAnalysisProps) {
           {(social?.positive_signals?.length ?? 0) > 0 && (
             <div>
               <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                Positive signals
+                {t("positive_signals", lang)}
               </p>
               <TagList items={social!.positive_signals!} icon="✅" />
             </div>
@@ -191,7 +193,7 @@ export default function SocialAnalysis({ social, links }: SocialAnalysisProps) {
           {(social?.key_concerns?.length ?? 0) > 0 && (
             <div>
               <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                Key concerns
+                {t("key_concerns", lang)}
               </p>
               <TagList items={social!.key_concerns!} icon="⚠️" />
             </div>
@@ -200,7 +202,7 @@ export default function SocialAnalysis({ social, links }: SocialAnalysisProps) {
           {(social?.kol_mentions?.length ?? 0) > 0 && (
             <div>
               <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                KOL mentions
+                {t("kol_mentions", lang)}
               </p>
               <TagList items={social!.kol_mentions!} icon="⭐" />
             </div>
@@ -209,7 +211,7 @@ export default function SocialAnalysis({ social, links }: SocialAnalysisProps) {
           {(social?.bot_activity_signals?.length ?? 0) > 0 && (
             <div>
               <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                Bot activity signals
+                {t("bot_activity_signals", lang)}
               </p>
               <TagList items={social!.bot_activity_signals!} icon="🤖" />
             </div>

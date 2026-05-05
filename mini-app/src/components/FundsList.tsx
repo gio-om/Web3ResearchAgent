@@ -1,10 +1,13 @@
 import { useState } from "react";
 import type { InvestorInfo, InvestorChip, FundingRound } from "../types";
 import { formatUsd } from "../utils/format";
+import { t, fmtPagination } from "../i18n";
+import type { Lang } from "../i18n";
 
 interface FundsListProps {
   investors: InvestorInfo[];
   fundingRounds: FundingRound[];
+  lang: Lang;
 }
 
 const AVATAR_COLORS = [
@@ -25,10 +28,10 @@ function initials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-function formatDate(d: string | null): string {
+function formatDate(d: string | null, lang: Lang): string {
   if (!d) return "—";
   const dt = new Date(d);
-  return dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return dt.toLocaleDateString(lang === "ru" ? "ru-RU" : "en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 const VISIBLE_INVESTORS = 4;
@@ -59,9 +62,10 @@ function InvestorAvatar({ inv, size = 8 }: { inv: InvestorChip; size?: number })
 interface InvestorModalProps {
   round: FundingRound;
   onClose: () => void;
+  lang: Lang;
 }
 
-function InvestorModal({ round, onClose }: InvestorModalProps) {
+function InvestorModal({ round, onClose, lang }: InvestorModalProps) {
   const investors = round.investors ?? [];
   return (
     <div
@@ -76,9 +80,9 @@ function InvestorModal({ round, onClose }: InvestorModalProps) {
           <div>
             <p className="font-bold text-gray-900 text-base">{round.round_name}</p>
             <p className="text-xs text-gray-400 mt-0.5">
-              {formatDate(round.date)}
-              {round.amount_usd != null && ` · Raised ${formatUsd(round.amount_usd)}`}
-              {round.valuation_usd != null && ` · Val. ${formatUsd(round.valuation_usd)}`}
+              {formatDate(round.date, lang)}
+              {round.amount_usd != null && ` · ${t("raised", lang)} ${formatUsd(round.amount_usd)}`}
+              {round.valuation_usd != null && ` · ${t("valuation", lang)} ${formatUsd(round.valuation_usd)}`}
             </p>
           </div>
           <button
@@ -90,7 +94,7 @@ function InvestorModal({ round, onClose }: InvestorModalProps) {
         </div>
 
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">
-          All Investors ({investors.length})
+          {t("all_investors", lang)} ({investors.length})
         </p>
         <div className="space-y-2">
           {investors.map((inv, i) => (
@@ -107,9 +111,10 @@ function InvestorModal({ round, onClose }: InvestorModalProps) {
 
 interface RoundCardProps {
   round: FundingRound;
+  lang: Lang;
 }
 
-function RoundCard({ round }: RoundCardProps) {
+function RoundCard({ round, lang }: RoundCardProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const investors = round.investors ?? [];
   const visible = investors.slice(0, VISIBLE_INVESTORS);
@@ -123,7 +128,7 @@ function RoundCard({ round }: RoundCardProps) {
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-1 h-5 rounded-full bg-indigo-500 shrink-0" />
             <span className="font-bold text-gray-900 text-sm truncate">{round.round_name}</span>
-            <span className="text-xs text-gray-400 whitespace-nowrap">{formatDate(round.date)}</span>
+            <span className="text-xs text-gray-400 whitespace-nowrap">{formatDate(round.date, lang)}</span>
             {round.announcement && (
               <a
                 href={round.announcement}
@@ -138,13 +143,13 @@ function RoundCard({ round }: RoundCardProps) {
           <div className="flex items-center gap-3 shrink-0">
             {round.amount_usd != null && (
               <div className="text-right">
-                <div className="text-[10px] text-gray-400 leading-none mb-0.5">Raised</div>
+                <div className="text-[10px] text-gray-400 leading-none mb-0.5">{t("raised", lang)}</div>
                 <div className="text-sm font-bold text-gray-900">{formatUsd(round.amount_usd)}</div>
               </div>
             )}
             {round.valuation_usd != null && (
               <div className="text-right">
-                <div className="text-[10px] text-gray-400 leading-none mb-0.5">Valuation</div>
+                <div className="text-[10px] text-gray-400 leading-none mb-0.5">{t("valuation", lang)}</div>
                 <div className="text-sm font-bold text-gray-900">{formatUsd(round.valuation_usd)}</div>
               </div>
             )}
@@ -154,7 +159,7 @@ function RoundCard({ round }: RoundCardProps) {
         {/* Investors */}
         {investors.length > 0 ? (
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xs text-gray-400 mr-0.5">Investors:</span>
+            <span className="text-xs text-gray-400 mr-0.5">{t("col_name", lang)}:</span>
             {visible.map((inv, i) => (
               <div key={i} className="flex items-center gap-1 bg-gray-50 rounded-full pl-1 pr-2.5 py-0.5">
                 <InvestorAvatar inv={inv} size={5} />
@@ -171,16 +176,16 @@ function RoundCard({ round }: RoundCardProps) {
             )}
           </div>
         ) : (
-          <span className="text-xs text-gray-400 italic">No investor data</span>
+          <span className="text-xs text-gray-400 italic">{t("no_investor_data", lang)}</span>
         )}
       </div>
 
-      {modalOpen && <InvestorModal round={round} onClose={() => setModalOpen(false)} />}
+      {modalOpen && <InvestorModal round={round} onClose={() => setModalOpen(false)} lang={lang} />}
     </>
   );
 }
 
-function InvestorTable({ investors }: { investors: InvestorInfo[] }) {
+function InvestorTable({ investors, lang }: { investors: InvestorInfo[]; lang: Lang }) {
   const [page, setPage] = useState(0);
   const totalPages = Math.ceil(investors.length / PAGE_SIZE);
   const slice = investors.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
@@ -191,10 +196,10 @@ function InvestorTable({ investors }: { investors: InvestorInfo[] }) {
     <div className="bg-white rounded-xl shadow-sm overflow-hidden">
       {/* Table header */}
       <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-4 py-2.5 border-b border-gray-100">
-        <span className="text-xs font-semibold text-gray-400">Name</span>
-        <span className="text-xs font-semibold text-gray-400 text-center w-8">Tier</span>
-        <span className="text-xs font-semibold text-gray-400 w-20">Type</span>
-        <span className="text-xs font-semibold text-gray-400 w-24">Stage</span>
+        <span className="text-xs font-semibold text-gray-400">{t("col_name", lang)}</span>
+        <span className="text-xs font-semibold text-gray-400 text-center w-8">{t("col_tier", lang)}</span>
+        <span className="text-xs font-semibold text-gray-400 w-20">{t("col_type", lang)}</span>
+        <span className="text-xs font-semibold text-gray-400 w-24">{t("col_stage", lang)}</span>
       </div>
 
       {/* Rows */}
@@ -207,7 +212,7 @@ function InvestorTable({ investors }: { investors: InvestorInfo[] }) {
               <span className="text-sm text-gray-800 truncate">{inv.name}</span>
               {inv.is_lead && (
                 <span className="text-[10px] font-semibold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded shrink-0">
-                  Lead
+                  {t("lead_badge", lang)}
                 </span>
               )}
             </div>
@@ -243,7 +248,7 @@ function InvestorTable({ investors }: { investors: InvestorInfo[] }) {
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
           <span className="text-xs text-gray-400">
-            {from} – {to} from {investors.length}
+            {fmtPagination(from, to, investors.length, lang)}
           </span>
           <div className="flex items-center gap-1">
             <button
@@ -280,11 +285,11 @@ function InvestorTable({ investors }: { investors: InvestorInfo[] }) {
   );
 }
 
-export default function FundsList({ investors, fundingRounds }: FundsListProps) {
+export default function FundsList({ investors, fundingRounds, lang }: FundsListProps) {
   if (fundingRounds.length === 0 && investors.length === 0) {
     return (
       <div className="bg-white rounded-xl p-4 shadow-sm">
-        <p className="text-sm text-gray-500 italic">No funding data available.</p>
+        <p className="text-sm text-gray-500 italic">{t("no_funding_data", lang)}</p>
       </div>
     );
   }
@@ -300,20 +305,20 @@ export default function FundsList({ investors, fundingRounds }: FundsListProps) 
         <>
           {totalRaised > 0 && (
             <div className="flex items-center justify-between bg-white rounded-xl px-4 py-3 shadow-sm">
-              <span className="text-sm text-gray-500">Total Raised</span>
+              <span className="text-sm text-gray-500">{t("total_raised", lang)}</span>
               <span className="text-base font-bold text-gray-900">{formatUsd(totalRaised)}</span>
             </div>
           )}
           <div className="space-y-2">
             {fundingRounds.map((r, i) => (
-              <RoundCard key={i} round={r} />
+              <RoundCard key={i} round={r} lang={lang} />
             ))}
           </div>
         </>
       )}
 
       {investors.length > 0 && (
-        <InvestorTable investors={investors} />
+        <InvestorTable investors={investors} lang={lang} />
       )}
     </div>
   );

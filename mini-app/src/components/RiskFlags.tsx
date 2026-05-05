@@ -1,7 +1,10 @@
 import type { RiskFlag } from "../types";
+import { t } from "../i18n";
+import type { Lang } from "../i18n";
 
 interface RiskFlagsProps {
   flags: RiskFlag[];
+  lang: Lang;
 }
 
 const ICON: Record<RiskFlag["type"], string> = {
@@ -22,11 +25,11 @@ const TEXT: Record<RiskFlag["type"], string> = {
   green: "text-green-700",
 };
 
-export default function RiskFlags({ flags }: RiskFlagsProps) {
+export default function RiskFlags({ flags, lang }: RiskFlagsProps) {
   if (flags.length === 0) {
     return (
       <div className="bg-white rounded-xl p-4 shadow-sm">
-        <p className="text-sm text-gray-500 italic">No risk flags detected.</p>
+        <p className="text-sm text-gray-500 italic">{t("no_risk_flags", lang)}</p>
       </div>
     );
   }

@@ -134,7 +134,7 @@ def analysis_type_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
 
 def report_keyboard(project_name: str, report_id: int, lang: str = "ru") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    webapp_url = _webapp_url(f"?report_id={report_id}")
+    webapp_url = _webapp_url(f"?report_id={report_id}&lang={lang}")
     builder.button(
         text=t("btn_detailed_report", lang),
         web_app=WebAppInfo(url=webapp_url),

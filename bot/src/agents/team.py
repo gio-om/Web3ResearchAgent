@@ -21,7 +21,37 @@ TIER1_COMPANIES = frozenset({
 })
 
 
-def _build_member(raw: dict, source: str) -> dict | None:
+_STEPS: dict[str, dict[str, str]] = {
+    "resolve_urls":       {"ru": "Ищем сайт проекта...",                              "en": "Searching project website..."},
+    "resolve_company":    {"ru": "Определяем точное название компании в LinkedIn...",  "en": "Resolving exact LinkedIn company name..."},
+    "company_found":      {"ru": "Компания на LinkedIn: {name}",                       "en": "LinkedIn company: {name}"},
+    "apify_search":       {"ru": "Запрашиваем профили через Apify...",                 "en": "Fetching profiles via Apify..."},
+    "search_members":     {"ru": "Ищем участников команды...",                         "en": "Searching team members..."},
+    "search_found":       {"ru": "Найдено {n} LinkedIn профилей, анализируем...",      "en": "Found {n} LinkedIn profiles, analysing..."},
+    "linkedin_page":      {"ru": "Анализируем LinkedIn страницу проекта...",           "en": "Analysing project LinkedIn page..."},
+    "find_team_page":     {"ru": "Ищем страницу команды на сайте...",                  "en": "Looking for team page on website..."},
+    "read_team_page":     {"ru": "Читаем страницу команды...",                         "en": "Reading team page..."},
+}
+
+
+def _step(key: str, lang: str, **kwargs) -> str:
+    text = _STEPS[key].get(lang) or _STEPS[key]["ru"]
+    return text.format(**kwargs) if kwargs else text
+
+
+_FLAGS: dict[str, dict[str, str]] = {
+    "no_members":      {"ru": "Участники команды не найдены",                             "en": "No team members found"},
+    "fully_anon":      {"ru": "Полностью анонимная команда — профили LinkedIn не найдены", "en": "Fully anonymous team — no LinkedIn profiles found"},
+    "no_linkedin":     {"ru": "Нет LinkedIn профиля",                                     "en": "No LinkedIn profile found"},
+}
+
+
+def _flag_msg(key: str, lang: str, **kwargs) -> str:
+    text = _FLAGS[key].get(lang) or _FLAGS[key]["ru"]
+    return text.format(**kwargs) if kwargs else text
+
+
+def _build_member(raw: dict, source: str, lang: str = "ru") -> dict | None:
     name = raw.get("name", "").strip()
     if not name:
         return None
@@ -29,7 +59,7 @@ def _build_member(raw: dict, source: str) -> dict | None:
     prev_raw = raw.get("previous_companies", []) or []
     prev_lower = [c.lower() for c in prev_raw]
     has_tier1 = any(tier1 in " ".join(prev_lower) for tier1 in TIER1_COMPANIES)
-    member_flags = [] if linkedin else ["No LinkedIn profile found"]
+    member_flags = [] if linkedin else [_flag_msg("no_linkedin", lang)]
     return {
         "name": name,
         "role": raw.get("role") or "",
@@ -49,35 +79,43 @@ def _build_member(raw: dict, source: str) -> dict | None:
     }
 
 
-def _merge_members(base: list[dict], additions: list[dict], source: str) -> list[dict]:
+def _merge_members(base: list[dict], additions: list[dict], source: str, lang: str = "ru") -> list[dict]:
     """Append members from additions that aren't already in base (by name)."""
     existing = {m["name"].lower() for m in base}
     result = list(base)
     for raw in additions:
-        m = _build_member(raw, source)
+        m = _build_member(raw, source, lang=lang)
         if m and m["name"].lower() not in existing:
             existing.add(m["name"].lower())
             result.append(m)
     return result
 
 
-def _build_flags(members: list[dict]) -> list[dict]:
+def _build_flags(members: list[dict], lang: str = "ru") -> list[dict]:
     flags: list[dict] = []
     total = len(members)
     if total == 0:
-        flags.append({"type": "red", "message": "No team members found"})
+        flags.append({"type": "red", "message": _flag_msg("no_members", lang)})
         return flags
 
     anon_count = sum(1 for m in members if not m["verified"])
     tier1_count = sum(1 for m in members if m["has_tier1_background"])
 
     if anon_count == total:
-        flags.append({"type": "red", "message": "Fully anonymous team — no LinkedIn profiles found"})
+        flags.append({"type": "red", "message": _flag_msg("fully_anon", lang)})
     elif anon_count > total // 2:
-        flags.append({"type": "yellow", "message": f"{anon_count}/{total} team members have no verified LinkedIn profile"})
+        if lang == "ru":
+            msg = f"{anon_count}/{total} участников команды не имеют подтверждённого профиля LinkedIn"
+        else:
+            msg = f"{anon_count}/{total} team members have no verified LinkedIn profile"
+        flags.append({"type": "yellow", "message": msg})
 
     if tier1_count > 0:
-        flags.append({"type": "green", "message": f"{tier1_count} member(s) with Tier-1 company background"})
+        if lang == "ru":
+            msg = f"{tier1_count} участник(ов) с опытом в компаниях Tier-1"
+        else:
+            msg = f"{tier1_count} member(s) with Tier-1 company background"
+        flags.append({"type": "green", "message": msg})
 
     return flags
 
@@ -85,6 +123,7 @@ def _build_flags(members: list[dict]) -> list[dict]:
 async def team_node(state: dict) -> dict:
     project_name = state.get("project_name", "")
     project_urls = state.get("project_urls", {})
+    lang = state.get("lang", "ru")
     log.info("team.start", project=project_name)
 
     from src.agents.graph import push_step
@@ -93,7 +132,7 @@ async def team_node(state: dict) -> dict:
     errors = list(state.get("errors", []))
 
     if not project_urls.get("website") and not project_urls.get("twitter"):
-        await push_step("team", "Ищем сайт проекта...")
+        await push_step("team", _step("resolve_urls", lang))
         from src.agents.resolve_urls import resolve_project_urls
         project_urls = await resolve_project_urls(project_name, project_urls)
 
@@ -107,11 +146,11 @@ async def team_node(state: dict) -> dict:
         llm = LLMService()
 
         # ── 1. Resolve exact LinkedIn company name ────────────────────
-        await push_step("team", "Определяем точное название компании в LinkedIn...")
+        await push_step("team", _step("resolve_company", lang))
         linkedin_company_url = project_urls.get("linkedin", "")
         company_name = await resolve_linkedin_company_name(project_name, linkedin_company_url)
         if company_name != project_name:
-            await push_step("team", f"Компания на LinkedIn: {company_name}")
+            await push_step("team", _step("company_found", lang, name=company_name))
         log.info("team.company_name", project=project_name, linkedin_name=company_name)
 
         # ── 2. Search LinkedIn profiles ───────────────────────────────
@@ -120,33 +159,33 @@ async def team_node(state: dict) -> dict:
 
         if mode == "apify":
             from src.services.apify_search import search_linkedin_team_apify
-            await push_step("team", "Запрашиваем профили через Apify...")
+            await push_step("team", _step("apify_search", lang))
             apify_members = await search_linkedin_team_apify(company_name, linkedin_company_url)
-            members = _merge_members(members, apify_members, source="apify")
+            members = _merge_members(members, apify_members, source="apify", lang=lang)
             log.info("team.apify_done", project=project_name, count=len(members))
         else:
-            await push_step("team", "Ищем участников команды...")
+            await push_step("team", _step("search_members", lang))
             search_results = await search_linkedin_team(company_name)
             log.info("team.search_done", project=project_name, mode=mode, results=len(search_results))
             if search_results:
-                await push_step("team", f"Найдено {len(search_results)} LinkedIn профилей, анализируем...")
+                await push_step("team", _step("search_found", lang, n=len(search_results)))
                 search_members_raw = await llm.extract_team_from_search_results(
-                    search_results, project_name
+                    search_results, project_name, lang=lang
                 )
-                members = _merge_members(members, search_members_raw, source="web_search")
+                members = _merge_members(members, search_members_raw, source="web_search", lang=lang)
                 log.info("team.search_members_extracted", project=project_name, count=len(members))
 
         # ── 3. LinkedIn company page (brave mode only) ────────────────
         linkedin_meta: dict = {}
         if mode != "apify" and linkedin_company_url:
-            await push_step("team", "Анализируем LinkedIn страницу проекта...")
+            await push_step("team", _step("linkedin_page", lang))
             linkedin_page = await scraper.scrape_page(linkedin_company_url)
             if linkedin_page and linkedin_page.text_content:
                 linkedin_meta = await llm.extract_linkedin_company_data(
-                    linkedin_page.text_content[:20_000]
+                    linkedin_page.text_content[:20_000], lang=lang
                 )
                 members = _merge_members(
-                    members, linkedin_meta.get("members", []), source="linkedin_company"
+                    members, linkedin_meta.get("members", []), source="linkedin_company", lang=lang
                 )
                 log.info(
                     "team.linkedin_scraped",
@@ -159,18 +198,18 @@ async def team_node(state: dict) -> dict:
         website = project_urls.get("website")
         team_page_url: str | None = None
         if website and not members:
-            await push_step("team", "Ищем страницу команды на сайте...")
+            await push_step("team", _step("find_team_page", lang))
             team_page_url = await scraper.find_team_page(website)
             if team_page_url:
-                await push_step("team", "Читаем страницу команды...")
+                await push_step("team", _step("read_team_page", lang))
                 page = await scraper.scrape_page(team_page_url)
                 if page and page.text_content:
-                    site_members_raw = await llm.extract_team_members(page.text_content[:20_000])
-                    members = _merge_members(members, site_members_raw, source="website")
+                    site_members_raw = await llm.extract_team_members(page.text_content[:20_000], lang=lang)
+                    members = _merge_members(members, site_members_raw, source="website", lang=lang)
 
         team_data = {
             "members": members,
-            "flags": _build_flags(members),
+            "flags": _build_flags(members, lang=lang),
             "team_page_url": team_page_url,
             "linkedin_url": linkedin_company_url,
             "linkedin_employee_count_range": linkedin_meta.get("employee_count_range"),

@@ -186,11 +186,18 @@ Extract:
             return {"project_name": user_input, "project_slug": slug,
                     "possible_website": None, "possible_twitter": None}
 
-    async def extract_team_members(self, page_content: str) -> list[dict]:
+    async def extract_team_members(self, page_content: str, lang: str = "ru") -> list[dict]:
         if not page_content.strip():
             return []
 
+        lang_instruction = (
+            "Write role and profile_notes in Russian."
+            if lang == "ru" else
+            "Write role and profile_notes in English."
+        )
+
         prompt = f"""Extract all team members from this project page content.
+{lang_instruction}
 
 Return a JSON array (empty [] if no team info found):
 [
@@ -213,7 +220,7 @@ Content:
             return []
 
     async def extract_team_from_search_results(
-        self, search_results: list[dict], project_name: str
+        self, search_results: list[dict], project_name: str, lang: str = "ru"
     ) -> list[dict]:
         """
         Extract structured team members from DDG search result titles/snippets.
@@ -221,6 +228,12 @@ Content:
         """
         if not search_results:
             return []
+
+        lang_instruction = (
+            "Write role and profile_notes in Russian."
+            if lang == "ru" else
+            "Write role and profile_notes in English."
+        )
 
         lines = []
         for i, r in enumerate(search_results, 1):
@@ -233,6 +246,7 @@ Content:
 
         prompt = f"""These are web search results for LinkedIn profiles of people working at crypto project "{project_name}".
 Each result is a LinkedIn profile page.
+{lang_instruction}
 
 Extract only people who currently work at "{project_name}" (ignore past employees).
 
@@ -257,11 +271,18 @@ Search results:
         except LLMError:
             return []
 
-    async def extract_linkedin_company_data(self, page_content: str) -> dict:
+    async def extract_linkedin_company_data(self, page_content: str, lang: str = "ru") -> dict:
         if not page_content.strip():
             return {}
 
+        lang_instruction = (
+            "Write role, profile_notes, and company_description in Russian."
+            if lang == "ru" else
+            "Write role, profile_notes, and company_description in English."
+        )
+
         prompt = f"""Extract company information from this LinkedIn company page content.
+{lang_instruction}
 
 Return JSON:
 {{
@@ -334,7 +355,7 @@ Return JSON:
             return {
                 "overall_score": 0,
                 "recommendation": "DYOR",
-                "summary": "Analysis incomplete due to LLM error.",
+                "summary": "Анализ не завершён из-за ошибки LLM." if lang == "ru" else "Analysis incomplete due to LLM error.",
                 "strengths": [],
                 "weaknesses": [],
             }

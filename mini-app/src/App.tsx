@@ -11,6 +11,8 @@ import TeamVerification from "./components/TeamVerification";
 import ScoreGauge from "./components/ScoreGauge";
 import SocialAnalysis from "./components/SocialAnalysis";
 import DocumentationAnalysis from "./components/DocumentationAnalysis";
+import { t } from "./i18n";
+import type { Lang } from "./i18n";
 
 // ─── Error Boundary ───────────────────────────────────────────────────────────
 
@@ -70,7 +72,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 // ─── Report View ─────────────────────────────────────────────────────────────
 
-function ReportView({ reportId }: { reportId: number }) {
+function ReportView({ reportId, lang }: { reportId: number; lang: Lang }) {
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,13 +80,13 @@ function ReportView({ reportId }: { reportId: number }) {
     if (reportId === 0) return;
     getReport(reportId)
       .then(setReport)
-      .catch(() => setError("Failed to load report."));
-  }, [reportId]);
+      .catch(() => setError(t("failed_load_report", lang)));
+  }, [reportId, lang]);
 
   if (reportId === 0)
     return (
       <div className="flex h-screen items-center justify-center p-6 text-gray-400">
-        No report selected.
+        {t("no_report_selected", lang)}
       </div>
     );
   if (error) return <ErrorScreen message={error} />;
@@ -92,49 +94,52 @@ function ReportView({ reportId }: { reportId: number }) {
 
   return (
     <div className="space-y-6 p-4 pb-10">
-      <Section title="Overview">
-        <ProjectCard report={report} />
+      <Section title={t("section_overview", lang)}>
+        <ProjectCard report={report} lang={lang} />
       </Section>
 
       {report.documentation && (
-        <Section title="Documentation">
-          <DocumentationAnalysis documentation={report.documentation} />
+        <Section title={t("section_documentation", lang)}>
+          <DocumentationAnalysis documentation={report.documentation} lang={lang} />
         </Section>
       )}
 
-      <Section title="Risk Flags">
-        <RiskFlags flags={report.risk_flags ?? []} />
+      <Section title={t("section_risk_flags", lang)}>
+        <RiskFlags flags={report.risk_flags ?? []} lang={lang} />
       </Section>
 
-      <Section title="Tokenomics — Vesting">
+      <Section title={t("section_tokenomics", lang)}>
         <VestingChart
           schedules={report.tokenomics?.vesting_schedules ?? []}
           tgeStartDate={report.tokenomics?.tge_start_date}
           tokenSymbol={report.tokenomics?.token_symbol}
           maxSupply={report.tokenomics?.max_supply}
+          lang={lang}
         />
       </Section>
 
-      <Section title="Funding & Investors">
+      <Section title={t("section_funding", lang)}>
         <FundsList
           investors={report.investors ?? []}
           fundingRounds={report.funding_rounds ?? []}
+          lang={lang}
         />
       </Section>
 
-      <Section title="Team">
-        <TeamVerification team={report.team ?? []} />
+      <Section title={t("section_team", lang)}>
+        <TeamVerification team={report.team ?? []} lang={lang} />
       </Section>
 
-      <Section title="Socials">
+      <Section title={t("section_socials", lang)}>
         <SocialAnalysis
           social={report.social}
           links={report.project_links ?? {}}
+          lang={lang}
         />
       </Section>
 
       {(report.data_sources?.length ?? 0) > 0 && (
-        <Section title="Data Sources">
+        <Section title={t("section_data_sources", lang)}>
           <ul className="space-y-0.5 text-xs text-gray-400">
             {(report.data_sources ?? []).map((src, i) => (
               <li key={i}>{src}</li>
@@ -148,15 +153,15 @@ function ReportView({ reportId }: { reportId: number }) {
 
 // ─── Portfolio View ───────────────────────────────────────────────────────────
 
-function PortfolioView({ userId }: { userId: number }) {
+function PortfolioView({ userId, lang }: { userId: number; lang: Lang }) {
   const [items, setItems] = useState<PortfolioItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     getPortfolio(userId)
       .then(setItems)
-      .catch(() => setError("Failed to load portfolio."));
-  }, [userId]);
+      .catch(() => setError(t("failed_load_portfolio", lang)));
+  }, [userId, lang]);
 
   if (error) return <ErrorScreen message={error} />;
   if (!items) return <Spinner />;
@@ -164,14 +169,14 @@ function PortfolioView({ userId }: { userId: number }) {
   if (items.length === 0) {
     return (
       <div className="flex h-screen items-center justify-center p-6 text-gray-400">
-        Portfolio is empty.
+        {t("portfolio_empty", lang)}
       </div>
     );
   }
 
   return (
     <div className="p-4 pb-10">
-      <h1 className="mb-4 text-lg font-bold text-gray-900">Portfolio</h1>
+      <h1 className="mb-4 text-lg font-bold text-gray-900">{t("portfolio_title", lang)}</h1>
       <ul className="space-y-2">
         {items.map((item) => (
           <li
@@ -182,7 +187,7 @@ function PortfolioView({ userId }: { userId: number }) {
               {item.project_name}
             </span>
             <span className="text-xs text-gray-400">
-              {new Date(item.added_at).toLocaleDateString()}
+              {new Date(item.added_at).toLocaleDateString(lang === "ru" ? "ru-RU" : "en-US")}
             </span>
           </li>
         ))}
@@ -193,15 +198,15 @@ function PortfolioView({ userId }: { userId: number }) {
 
 // ─── Compare View ─────────────────────────────────────────────────────────────
 
-function CompareView({ a, b }: { a: string; b: string }) {
+function CompareView({ a, b, lang }: { a: string; b: string; lang: Lang }) {
   const [result, setResult] = useState<CompareResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     compareProjects(a, b)
       .then(setResult)
-      .catch(() => setError("Failed to compare projects."));
-  }, [a, b]);
+      .catch(() => setError(t("failed_compare", lang)));
+  }, [a, b, lang]);
 
   if (error) return <ErrorScreen message={error} />;
   if (!result) return <Spinner />;
@@ -211,7 +216,7 @@ function CompareView({ a, b }: { a: string; b: string }) {
   return (
     <div className="p-4 pb-10">
       <h1 className="mb-4 text-center text-lg font-bold text-gray-900">
-        Compare
+        {t("compare_title", lang)}
       </h1>
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col items-center rounded-xl border bg-white p-3 shadow-sm">
@@ -280,22 +285,23 @@ function Router() {
   useTelegram();
 
   const params = new URLSearchParams(window.location.search);
+  const lang: Lang = params.get("lang") === "en" ? "en" : "ru";
 
   const reportId = params.get("report_id");
-  if (reportId) return <ReportView reportId={parseInt(reportId, 10)} />;
+  if (reportId) return <ReportView reportId={parseInt(reportId, 10)} lang={lang} />;
 
   const view = params.get("view");
   const userId = params.get("user_id");
   if (view === "portfolio" && userId)
-    return <PortfolioView userId={parseInt(userId, 10)} />;
+    return <PortfolioView userId={parseInt(userId, 10)} lang={lang} />;
 
   const compare = params.get("compare");
   if (compare) {
     const [projA, projB] = compare.split(",");
-    if (projA && projB) return <CompareView a={projA} b={projB} />;
+    if (projA && projB) return <CompareView a={projA} b={projB} lang={lang} />;
   }
 
-  return <ReportView reportId={0} />;
+  return <ReportView reportId={0} lang={lang} />;
 }
 
 export default function App() {

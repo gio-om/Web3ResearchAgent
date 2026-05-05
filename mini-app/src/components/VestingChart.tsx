@@ -11,12 +11,15 @@ import {
   Pie,
 } from "recharts";
 import type { VestingSchedule } from "../types";
+import { t, fmtMonthYear } from "../i18n";
+import type { Lang } from "../i18n";
 
 interface VestingChartProps {
   schedules: VestingSchedule[];
   tgeStartDate?: string | null;
   tokenSymbol?: string;
   maxSupply?: number | null;
+  lang: Lang;
 }
 
 const COLORS = [
@@ -45,10 +48,6 @@ function addMonths(date: Date, months: number): Date {
   return d;
 }
 
-function fmtMonthYear(date: Date): string {
-  return date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
-}
-
 const RADIAN = Math.PI / 180;
 function renderPieLabel({
   cx, cy, midAngle, innerRadius, outerRadius, percent,
@@ -73,18 +72,25 @@ function renderPieLabel({
   );
 }
 
+const TAB_KEYS: Record<Tab, "tab_table" | "tab_timeline" | "tab_chart"> = {
+  table: "tab_table",
+  timeline: "tab_timeline",
+  chart: "tab_chart",
+};
+
 export default function VestingChart({
   schedules,
   tgeStartDate,
   tokenSymbol,
   maxSupply,
+  lang,
 }: VestingChartProps) {
   const [tab, setTab] = useState<Tab>("chart");
 
   if (schedules.length === 0) {
     return (
       <div className="bg-white rounded-xl p-4 shadow-sm">
-        <p className="text-sm text-gray-500 italic">No vesting data available.</p>
+        <p className="text-sm text-gray-500 italic">{t("no_vesting_data", lang)}</p>
       </div>
     );
   }
@@ -127,7 +133,7 @@ export default function VestingChart({
     const step = spanMonths <= 18 ? 3 : spanMonths <= 48 ? 6 : spanMonths <= 84 ? 12 : 24;
     const cur = new Date(minDate);
     while (cur <= maxDate) {
-      axisLabels.push({ label: fmtMonthYear(cur), pct: toPct(new Date(cur)) });
+      axisLabels.push({ label: fmtMonthYear(new Date(cur), lang), pct: toPct(new Date(cur)) });
       cur.setMonth(cur.getMonth() + step);
     }
   }
@@ -140,10 +146,10 @@ export default function VestingChart({
 
       {/* ── Allocation header ──────────────────────────────────────────────── */}
       <div className="flex items-center justify-between text-xs">
-        <span className="font-semibold uppercase tracking-wide text-gray-500">Allocation</span>
+        <span className="font-semibold uppercase tracking-wide text-gray-500">{t("allocation", lang)}</span>
         {maxSupply != null && (
           <span className="text-gray-400">
-            Max. Supply:{" "}
+            {t("max_supply", lang)}{" "}
             <span className="font-semibold text-gray-700">
               {tokenSymbol ? `${tokenSymbol} ` : ""}
               {formatSupply(maxSupply)}
@@ -175,7 +181,7 @@ export default function VestingChart({
                 ))}
               </Pie>
               <Tooltip
-                formatter={(v: number) => [`${v}%`, "Allocation"]}
+                formatter={(v: number) => [`${v}%`, t("tooltip_allocation", lang)]}
                 contentStyle={{ fontSize: 11 }}
               />
             </PieChart>
@@ -186,12 +192,12 @@ export default function VestingChart({
           <table className="w-full text-xs">
             <thead>
               <tr className="text-gray-400 text-left border-b border-gray-100">
-                <th className="pb-1 pr-2 font-medium">Name</th>
-                <th className="pb-1 pr-2 font-medium text-right">Total</th>
+                <th className="pb-1 pr-2 font-medium">{t("col_recipient", lang)}</th>
+                <th className="pb-1 pr-2 font-medium text-right">{t("col_total", lang)}</th>
                 {hasUnlocked && (
                   <>
-                    <th className="pb-1 pr-2 font-medium text-right">Unlocked</th>
-                    <th className="pb-1 font-medium text-right">Locked</th>
+                    <th className="pb-1 pr-2 font-medium text-right">{t("col_unlocked", lang)}</th>
+                    <th className="pb-1 font-medium text-right">{t("col_locked", lang)}</th>
                   </>
                 )}
               </tr>
@@ -244,20 +250,20 @@ export default function VestingChart({
       {/* ── Vesting Schedule heading + tabs ───────────────────────────────── */}
       <div className="flex items-center justify-between border-b border-gray-100 pb-0">
         <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 pb-1.5">
-          Vesting Schedule
+          {t("vesting_schedule", lang)}
         </span>
         <div className="flex gap-0.5 text-xs font-medium">
-          {(["table", "timeline", "chart"] as Tab[]).map((t) => (
+          {(["table", "timeline", "chart"] as Tab[]).map((tabKey) => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
+              key={tabKey}
+              onClick={() => setTab(tabKey)}
               className={`px-2.5 py-1 rounded-t-md capitalize transition-colors ${
-                tab === t
+                tab === tabKey
                   ? "bg-white border border-b-white border-gray-200 text-indigo-600 -mb-px z-10"
                   : "text-gray-400 hover:text-gray-600"
               }`}
             >
-              {t.charAt(0).toUpperCase() + t.slice(1)}
+              {t(TAB_KEYS[tabKey], lang)}
             </button>
           ))}
         </div>
@@ -269,10 +275,10 @@ export default function VestingChart({
           <table className="w-full text-xs text-gray-600">
             <thead>
               <tr className="border-b text-left text-gray-400">
-                <th className="pb-1 pr-3 font-medium">Recipient</th>
+                <th className="pb-1 pr-3 font-medium">{t("col_recipient", lang)}</th>
                 <th className="pb-1 pr-3 font-medium text-right">%</th>
-                <th className="pb-1 pr-3 font-medium text-right">Cliff</th>
-                <th className="pb-1 pr-3 font-medium text-right">Vesting</th>
+                <th className="pb-1 pr-3 font-medium text-right">{t("col_cliff", lang)}</th>
+                <th className="pb-1 pr-3 font-medium text-right">{t("col_vesting", lang)}</th>
                 <th className="pb-1 font-medium text-right">TGE%</th>
               </tr>
             </thead>
@@ -304,7 +310,7 @@ export default function VestingChart({
         <div className="space-y-1.5">
           {!hasTimeline ? (
             <p className="text-xs text-gray-400 italic">
-              Timeline unavailable — no TGE date in data.
+              {t("timeline_unavailable", lang)}
             </p>
           ) : (
             <>
@@ -314,7 +320,7 @@ export default function VestingChart({
                   className="absolute top-0 text-[10px] font-bold text-indigo-500 -translate-x-1/2 select-none"
                   style={{ left: `${todayPct}%` }}
                 >
-                  TODAY
+                  {t("today_label", lang)}
                 </div>
               </div>
 
@@ -344,10 +350,12 @@ export default function VestingChart({
 
                 const unlockedLabel =
                   item.s.unlocked_percent != null
-                    ? `Unlock ${item.s.unlocked_percent.toFixed(1)}%`
+                    ? (lang === "ru"
+                        ? `Разблокировано ${item.s.unlocked_percent.toFixed(1)}%`
+                        : `Unlock ${item.s.unlocked_percent.toFixed(1)}%`)
                     : item.s.unlock_type === "vested_at_tge"
-                    ? "Vested at TGE"
-                    : "Linear";
+                    ? t("vested_at_tge", lang)
+                    : t("linear", lang);
 
                 const lockedPct =
                   item.s.unlocked_percent != null
@@ -356,7 +364,6 @@ export default function VestingChart({
 
                 return (
                   <div key={i} className="flex items-center gap-2">
-                    {/* Row label — wider, allows 2 lines */}
                     <div
                       className="text-[11px] text-gray-500 shrink-0 text-right leading-tight"
                       style={{ width: 112 }}
@@ -364,15 +371,12 @@ export default function VestingChart({
                       {item.s.recipient_type}
                     </div>
 
-                    {/* Track */}
                     <div className="relative flex-1 h-7 bg-gray-100 rounded overflow-hidden">
-                      {/* Today line */}
                       <div
                         className="absolute inset-y-0 w-px bg-indigo-400 z-20"
                         style={{ left: `${todayPct}%` }}
                       />
 
-                      {/* Unlocked segment */}
                       {unlockedW > 0 && (
                         <div
                           className="absolute inset-y-0 flex items-center overflow-hidden"
@@ -390,7 +394,6 @@ export default function VestingChart({
                         </div>
                       )}
 
-                      {/* Locked segment */}
                       {lockedW > 0 && (
                         <div
                           className="absolute inset-y-0 flex items-center overflow-hidden"
@@ -406,7 +409,9 @@ export default function VestingChart({
                               className="px-1.5 text-[10px] font-medium truncate select-none"
                               style={{ color: item.color }}
                             >
-                              Lock {lockedPct}%
+                              {lang === "ru"
+                                ? `Заблокировано ${lockedPct}%`
+                                : `Lock ${lockedPct}%`}
                             </span>
                           )}
                         </div>
@@ -451,7 +456,7 @@ export default function VestingChart({
               width={110}
               tick={{ fontSize: 11 }}
             />
-            <Tooltip formatter={(v: number) => [`${v}%`, "Allocation"]} />
+            <Tooltip formatter={(v: number) => [`${v}%`, t("tooltip_allocation", lang)]} />
             <Bar dataKey="allocation" radius={[0, 4, 4, 0]}>
               {schedules.map((_s, i) => (
                 <Cell key={i} fill={COLORS[i % COLORS.length]} />

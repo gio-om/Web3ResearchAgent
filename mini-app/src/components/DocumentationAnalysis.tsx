@@ -1,20 +1,17 @@
 import { useState } from "react";
 import type { DocumentationInfo } from "../types";
+import { t, fmtPages, fmtProjectLinks } from "../i18n";
+import type { Lang } from "../i18n";
 
 interface Props {
   documentation?: DocumentationInfo;
+  lang: Lang;
 }
 
 const COMPLETENESS_BADGE: Record<string, string> = {
   high:   "bg-green-100 text-green-700",
   medium: "bg-yellow-100 text-yellow-700",
   low:    "bg-red-100 text-red-700",
-};
-
-const COMPLETENESS_LABEL: Record<string, string> = {
-  high:   "High",
-  medium: "Medium",
-  low:    "Low",
 };
 
 function fmt(n: number | null | undefined): string {
@@ -24,12 +21,12 @@ function fmt(n: number | null | undefined): string {
   return n.toLocaleString();
 }
 
-export default function DocumentationAnalysis({ documentation }: Props) {
+export default function DocumentationAnalysis({ documentation, lang }: Props) {
   const [linksOpen, setLinksOpen] = useState(false);
   if (!documentation) {
     return (
       <div className="bg-white rounded-xl p-4 shadow-sm">
-        <p className="text-sm text-gray-400 italic">No documentation data.</p>
+        <p className="text-sm text-gray-400 italic">{t("no_docs_data", lang)}</p>
       </div>
     );
   }
@@ -38,7 +35,7 @@ export default function DocumentationAnalysis({ documentation }: Props) {
     return (
       <div className="bg-white rounded-xl p-4 shadow-sm">
         <p className="text-sm text-gray-400 italic">
-          Documentation not found: {documentation.error}
+          {t("docs_not_found", lang)} {documentation.error}
         </p>
       </div>
     );
@@ -49,6 +46,15 @@ export default function DocumentationAnalysis({ documentation }: Props) {
   const pages = documentation.scraped_pages ?? [];
   const features = documentation.key_features ?? [];
   const projectLinks = Object.entries(documentation.project_links ?? {});
+
+  const COMPLETENESS_KEY: Record<string, "completeness_high" | "completeness_medium" | "completeness_low"> = {
+    high: "completeness_high",
+    medium: "completeness_medium",
+    low: "completeness_low",
+  };
+  const completenessLabel = completeness && COMPLETENESS_KEY[completeness]
+    ? `${t(COMPLETENESS_KEY[completeness], lang)} ${t("completeness_data", lang)}`
+    : completeness ?? null;
 
   return (
     <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
@@ -79,9 +85,9 @@ export default function DocumentationAnalysis({ documentation }: Props) {
               : documentation.website_url}
           </a>
         ) : <span />}
-        {completeness && (
+        {completenessLabel && completeness && (
           <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${COMPLETENESS_BADGE[completeness] ?? "bg-gray-100 text-gray-500"}`}>
-            {COMPLETENESS_LABEL[completeness] ?? completeness} data
+            {completenessLabel}
           </span>
         )}
       </div>
@@ -90,7 +96,7 @@ export default function DocumentationAnalysis({ documentation }: Props) {
       {documentation.scraped_from_website && (
         <div className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-700">
           <span className="shrink-0 mt-0.5">ℹ️</span>
-          <span>Документация не найдена — собрана общая информация с сайта проекта</span>
+          <span>{t("docs_fallback_notice", lang)}</span>
         </div>
       )}
 
@@ -104,7 +110,7 @@ export default function DocumentationAnalysis({ documentation }: Props) {
       {/* Key features */}
       {features.length > 0 && (
         <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Key features</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">{t("key_features", lang)}</p>
           <ul className="space-y-1">
             {features.map((f, i) => (
               <li key={i} className="flex items-start gap-1.5 text-xs text-gray-700">
@@ -121,7 +127,7 @@ export default function DocumentationAnalysis({ documentation }: Props) {
         <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-gray-100 pt-2">
           {(documentation.token_name || documentation.token_symbol) && (
             <p className="text-xs text-gray-500">
-              Token:{" "}
+              {t("token_label", lang)}{" "}
               <span className="font-medium text-gray-700">
                 {documentation.token_name ?? ""}
                 {documentation.token_symbol && ` (${documentation.token_symbol})`}
@@ -130,7 +136,7 @@ export default function DocumentationAnalysis({ documentation }: Props) {
           )}
           {documentation.total_supply != null && (
             <p className="text-xs text-gray-500">
-              Supply: <span className="font-medium text-gray-700">{fmt(documentation.total_supply)}</span>
+              {t("supply_label", lang)} <span className="font-medium text-gray-700">{fmt(documentation.total_supply)}</span>
             </p>
           )}
         </div>
@@ -139,7 +145,7 @@ export default function DocumentationAnalysis({ documentation }: Props) {
       {/* Scraped pages count */}
       {pages.length > 0 && (
         <p className="text-xs text-gray-400">
-          Analysed {pages.length} page{pages.length !== 1 ? "s" : ""}
+          {fmtPages(pages.length, lang)}
         </p>
       )}
 
@@ -147,7 +153,7 @@ export default function DocumentationAnalysis({ documentation }: Props) {
       {conditions.length > 0 && (
         <div className="space-y-1.5 pt-1 border-t border-gray-100">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-            Unusual conditions
+            {t("unusual_conditions", lang)}
           </p>
           <ul className="space-y-1">
             {conditions.map((c, i) => (
@@ -166,7 +172,7 @@ export default function DocumentationAnalysis({ documentation }: Props) {
       {/* No issues found */}
       {conditions.length === 0 && (documentation.docs_url || documentation.scraped_from_website) && (
         <p className="text-xs text-green-600 flex items-center gap-1">
-          <span>✅</span> No unusual conditions detected
+          <span>✅</span> {t("no_unusual_conditions", lang)}
         </p>
       )}
 
@@ -178,7 +184,7 @@ export default function DocumentationAnalysis({ documentation }: Props) {
             className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors w-full text-left"
           >
             <span className="transition-transform duration-200" style={{ display: "inline-block", transform: linksOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
-            Project links from docs ({projectLinks.length})
+            {fmtProjectLinks(projectLinks.length, lang)}
           </button>
           {linksOpen && (
             <ul className="mt-2 space-y-1.5">

@@ -8,27 +8,10 @@ log = structlog.get_logger()
 _TIER1_FUNDS = {"a16z", "paradigm", "sequoia", "binance labs", "coinbase ventures",
                 "polychain", "multicoin", "pantera", "framework", "dragonfly"}
 
-ANALYST_PROMPT = """You are a professional crypto analyst. Based on the collected data, evaluate the project {project_name}.
-
-Aggregator data: {aggregator_data}
-Documentation data: {documentation_data}
-Social metrics: {social_data}
-Team verification: {team_data}
-Cross-check results: {cross_check_results}
-
-Respond ONLY in valid JSON (no markdown fences):
-{{
-  "overall_score": <integer 0-100>,
-  "recommendation": "<DYOR|Interesting|Strong|Avoid>",
-  "summary": "<3-4 sentence overview in Russian>",
-  "strengths": ["<strength 1>", "<strength 2>", ...],
-  "weaknesses": ["<weakness 1>", "<weakness 2>", ...],
-  "tokenomics_score": <0-25>,
-  "investors_score": <0-25>,
-  "team_score": <0-25>,
-  "social_score": <0-25>
-}}
-"""
+_CR_LIMIT_MSG = {
+    "ru": "Дневной лимит CryptoRank исчерпан — данные по инвесторам/раундам могут быть неполными",
+    "en": "CryptoRank daily limit reached — investor/round data may be incomplete",
+}
 
 
 def _build_tokenomics(documentation_data: dict, cr_vesting) -> dict:
@@ -260,7 +243,7 @@ async def analyst_node(state: dict) -> dict:
         cross_check_results.append({
             "type": "yellow",
             "category": "Data",
-            "message": "Дневной лимит CryptoRank исчерпан — данные по инвесторам/раундам могут быть неполными",
+            "message": _CR_LIMIT_MSG.get(state.get("lang", "ru"), _CR_LIMIT_MSG["ru"]),
         })
     errors = list(state.get("errors", []))
     coingecko = aggregator_data.get("coingecko", {}) or {}
