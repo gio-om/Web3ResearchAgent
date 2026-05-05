@@ -29,7 +29,7 @@ class AnalysisStates(StatesGroup):
 _MODE_MODULES: dict[str, list[str]] = {
     "full":          ["aggregator", "documentation", "social", "team"],
     "market":        ["aggregator"],
-    "docs":          ["aggregator", "documentation"],
+    "docs":          ["aggregator"],
     "documentation": ["documentation"],
     "social":        ["social"],
     "team":          ["team"],
