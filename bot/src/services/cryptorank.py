@@ -4,6 +4,7 @@ CryptoRank client — direct JSON API calls to api.cryptorank.io.
 Endpoints discovered via DevTools (Fetch/XHR):
   - GET /v0/coins/{slug}                                         → coin metadata
   - GET /v0/funding-rounds/with-investors/by-coin-key/{slug}     → all VC rounds + investors
+  - GET /v0/coins/last-by-funding-rounds/{slug}/exclusive        → last funding rounds (alt source)
   - GET /v0/app/coins/{slug}/token-sales/exclusive/limited       → token sales (IDO/IEO/public)
   - GET /v0/app/coins/{slug}/vesting/allocations                 → vesting schedule
 
@@ -377,54 +378,109 @@ class CryptoRankClient:
         await cache_set(cache_key, result, ttl=3600)
         return result
 
+    def _parse_round_item(self, r: dict) -> dict | None:
+        """Parse a single funding round dict from any CryptoRank endpoint into canonical form."""
+        rtype = _map_round_type(r.get("type", "") or r.get("kind", "") or "Unknown")
+        date = _parse_date(r.get("date") or r.get("start"))
+
+        raise_val = r.get("raise") or r.get("amount")
+        amount = _safe_float(raise_val.get("USD") if isinstance(raise_val, dict) else raise_val)
+
+        price = r.get("price") or r.get("price_usd")
+        token_price = _safe_float(price.get("USD") if isinstance(price, dict) else price)
+
+        investors = _extract_investors(r.get("investors") or [])
+
+        return {
+            "round_type": rtype,
+            "date": date,
+            "amount_usd": amount,
+            "valuation_usd": _safe_float(r.get("valuation")),
+            "token_price": token_price,
+            "investors": investors,
+            "announcement": r.get("linkToAnnouncement") or r.get("announcement") or "",
+        }
+
     async def get_funding_rounds(self, project_id: str) -> list[dict]:
         """
         Get all funding rounds with investors (name + logo).
 
-        Endpoint: GET /v0/app/coins/{slug}/token-sales/exclusive/limited?sortBy=Date
+        Tries three endpoints concurrently and merges results (deduplicated by round_type:date):
+          1. GET /v0/app/coins/{slug}/token-sales/exclusive/limited?sortBy=Date
+          2. GET /v0/funding-rounds/with-investors/by-coin-key/{slug}/exclusive
+          3. GET /v0/coins/last-by-funding-rounds/{slug}/exclusive?locale=en
+
         Returns list of:
             {round_type, date, amount_usd, valuation_usd, token_price, investors, announcement}
         where investors = [{name, logo}]
         """
-        cache_key = f"cr:funding2:{project_id}"
+        cache_key = f"cr:funding4:{project_id}"
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
 
-        rounds: list[dict] = []
-        seen_keys: set[str] = set()
-
-        sales_data = await _api_get(
-            f"/v0/app/coins/{project_id}/token-sales/exclusive/limited",
-            params={"sortBy": "Date"},
+        sales_data, with_inv_data, last_rounds_data = await asyncio.gather(
+            _api_get(
+                f"/v0/app/coins/{project_id}/token-sales/exclusive/limited",
+                params={"sortBy": "Date"},
+            ),
+            _api_get(
+                f"/v0/funding-rounds/with-investors/by-coin-key/{project_id}/exclusive",
+            ),
+            _api_get(
+                f"/v0/coins/last-by-funding-rounds/{project_id}/exclusive",
+                params={"locale": "en"},
+            ),
         )
 
-        if isinstance(sales_data, dict) and sales_data.get("blocked") == "limit_reached":
-            log.warning("cryptorank.limit_reached", endpoint="token-sales", slug=project_id)
-            self.limit_reached = True
+        # Collect raw round dicts from all responses
+        raw_rounds: list[dict] = []
 
-        for r in (sales_data or {}).get("rounds", []) if isinstance(sales_data, dict) else []:
-            raise_val = r.get("raise")
-            amount = _safe_float(raise_val.get("USD") if isinstance(raise_val, dict) else raise_val)
-            price = r.get("price") or r.get("price_usd")
-            token_price = _safe_float(price.get("USD") if isinstance(price, dict) else price)
+        def _extract_raw(resp, endpoint: str) -> list[dict]:
+            """Pull round list out of any response shape and detect limit_reached."""
+            if resp is None:
+                return []
+            if isinstance(resp, list):
+                return resp
+            if not isinstance(resp, dict):
+                return []
+            if resp.get("blocked") == "limit_reached":
+                log.warning("cryptorank.limit_reached", endpoint=endpoint, slug=project_id)
+                self.limit_reached = True
+                return []
+            log.info("cryptorank.raw_response", endpoint=endpoint, slug=project_id,
+                     keys=list(resp.keys())[:8])
+            # Try all known nesting patterns
+            inner = resp.get("data")
+            if isinstance(inner, list):
+                return inner
+            if isinstance(inner, dict):
+                nested = inner.get("rounds") or inner.get("data") or []
+                if nested:
+                    return nested
+            return resp.get("rounds") or resp.get("items") or []
 
-            rtype = _map_round_type(r.get("type", "Unknown"))
-            date = _parse_date(r.get("date") or r.get("start"))
-            key = f"{rtype}:{date}"
+        raw_rounds.extend(_extract_raw(sales_data, "token-sales"))
+        raw_rounds.extend(_extract_raw(with_inv_data, "with-investors"))
+        raw_rounds.extend(_extract_raw(last_rounds_data, "last-by-funding-rounds"))
+
+        log.info("cryptorank.funding.raw_total", slug=project_id, count=len(raw_rounds))
+
+        rounds: list[dict] = []
+        seen_keys: set[str] = set()
+        for r in raw_rounds:
+            parsed = self._parse_round_item(r)
+            if not parsed:
+                continue
+            key = f"{parsed['round_type']}:{parsed['date']}"
             if key in seen_keys:
+                # Keep the one with more investor data
+                existing = next((x for x in rounds if f"{x['round_type']}:{x['date']}" == key), None)
+                if existing and len(parsed["investors"]) > len(existing["investors"]):
+                    existing["investors"] = parsed["investors"]
                 continue
             seen_keys.add(key)
-
-            rounds.append({
-                "round_type": rtype,
-                "date": date,
-                "amount_usd": amount,
-                "valuation_usd": _safe_float(r.get("valuation")),
-                "token_price": token_price,
-                "investors": _extract_investors(r.get("investors") or []),
-                "announcement": r.get("linkToAnnouncement") or "",
-            })
+            rounds.append(parsed)
 
         rounds = [r for r in rounds if r["date"] or r["amount_usd"]]
         rounds.sort(key=lambda r: r["date"] or "", reverse=True)
@@ -441,7 +497,7 @@ class CryptoRankClient:
         Returns list of:
             {name, logo, tier, category, is_lead, stage}
         """
-        cache_key = f"cr:investors:{project_id}"
+        cache_key = f"cr:investors2:{project_id}"
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
@@ -456,9 +512,11 @@ class CryptoRankClient:
         if data.get("blocked") == "limit_reached":
             log.warning("cryptorank.limit_reached", endpoint="investors-list", slug=project_id)
             self.limit_reached = True
+            return []
 
+        log.info("cryptorank.investors_list.raw", slug=project_id, keys=list(data.keys())[:8])
         result = []
-        for inv in data.get("investors") or []:
+        for inv in data.get("investors") or data.get("data") or []:
             name = inv.get("name") or inv.get("slug", "")
             if not name:
                 continue
@@ -492,7 +550,7 @@ class CryptoRankClient:
               }]
             }
         """
-        cache_key = f"cr:vesting3:{project_id}"
+        cache_key = f"cr:vesting4:{project_id}"
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached

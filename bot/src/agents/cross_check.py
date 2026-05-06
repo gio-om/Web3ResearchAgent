@@ -6,6 +6,54 @@ import structlog
 
 log = structlog.get_logger()
 
+_MSGS: dict[str, dict[str, str]] = {
+    "supply_mismatch": {
+        "ru": "Несоответствие общего предложения: агрегатор {agg:,.0f} vs whitepaper {doc:,.0f} ({diff:.1f}% разница)",
+        "en": "Total supply mismatch: aggregator {agg:,.0f} vs whitepaper {doc:,.0f} ({diff:.1f}% diff)",
+    },
+    "short_vesting": {
+        "ru": "Короткий вестинг для {category}: только {months} мес. (рекомендуется: 24+ мес.)",
+        "en": "Short vesting for {category}: only {months} months (best practice: 24+ months)",
+    },
+    "high_tge": {
+        "ru": "Высокий TGE-анлок для {category}: {tge}% (давление продаж при запуске)",
+        "en": "High TGE unlock for {category}: {tge}% (creates sell pressure at launch)",
+    },
+    "high_roi": {
+        "ru": "Инвесторы раунда {round_type} имеют ROI {roi:.0f}x — высокий риск давления продавцов",
+        "en": "Investors in {round_type} round have {roi:.0f}x ROI — high sell pressure risk",
+    },
+    "low_engagement": {
+        "ru": "Очень низкая вовлечённость ({rate:.4f}) при {followers:,} подписчиках — возможна бот-аудитория",
+        "en": "Very low engagement rate ({rate:.4f}) for {followers:,} followers — possible bot audience",
+    },
+    "bot_signals": {
+        "ru": "Обнаружены сигналы бот-активности: {signals}",
+        "en": "Bot activity signals detected: {signals}",
+    },
+    "negative_sentiment": {
+        "ru": "Негативные настроения сообщества (score: {score:.2f})",
+        "en": "Negative community sentiment (score: {score:.2f})",
+    },
+    "positive_sentiment": {
+        "ru": "Сильные позитивные настроения сообщества (score: {score:.2f})",
+        "en": "Strong positive community sentiment (score: {score:.2f})",
+    },
+    "high_fdv_extreme": {
+        "ru": "FDV/MCap ratio: {ratio:.1f}x — большинство токенов заблокировано, впереди высокая инфляция",
+        "en": "FDV/MCap ratio is {ratio:.1f}x — most tokens still locked, large inflation ahead",
+    },
+    "high_fdv": {
+        "ru": "Высокий FDV/MCap ratio ({ratio:.1f}x) — ожидается значительный объём разблокировок",
+        "en": "High FDV/MCap ratio ({ratio:.1f}x) — significant token unlocks expected",
+    },
+}
+
+
+def _msg(key: str, lang: str, **kwargs: object) -> str:
+    tmpl = _MSGS[key].get(lang) or _MSGS[key]["en"]
+    return tmpl.format(**kwargs) if kwargs else tmpl
+
 
 def _make_flag(flag_type: str, category: str, message: str, source: str, severity: int = 5) -> dict:
     return {
@@ -23,6 +71,7 @@ async def cross_check_node(state: dict) -> dict:
     Generates RiskFlags for inconsistencies.
     """
     project_name = state.get("project_name", "")
+    lang = state.get("lang", "ru")
     log.info("cross_check.start", project=project_name)
 
     aggregator_data = state.get("aggregator_data", {})
@@ -46,7 +95,7 @@ async def cross_check_node(state: dict) -> dict:
             if diff_pct > 5:
                 flags.append(_make_flag(
                     "red", "tokenomics",
-                    f"Total supply mismatch: aggregator {agg_supply:,.0f} vs whitepaper {doc_supply:,.0f} ({diff_pct:.1f}% diff)",
+                    _msg("supply_mismatch", lang, agg=agg_supply, doc=doc_supply, diff=diff_pct),
                     "Cryptorank vs Documentation",
                     severity=8,
                 ))
@@ -61,14 +110,14 @@ async def cross_check_node(state: dict) -> dict:
         if category.lower() in ("team", "founders") and vesting < 12:
             flags.append(_make_flag(
                 "red", "tokenomics",
-                f"Short vesting for {category}: only {vesting} months (best practice: 24+ months)",
+                _msg("short_vesting", lang, category=category, months=vesting),
                 "Documentation",
                 severity=7,
             ))
         if tge > 20 and category.lower() in ("investors", "private"):
             flags.append(_make_flag(
                 "yellow", "tokenomics",
-                f"High TGE unlock for {category}: {tge}% (creates sell pressure at launch)",
+                _msg("high_tge", lang, category=category, tge=tge),
                 "Documentation",
                 severity=5,
             ))
@@ -98,7 +147,7 @@ async def cross_check_node(state: dict) -> dict:
                 if roi > 50:
                     flags.append(_make_flag(
                         "yellow", "investors",
-                        f"Investors in {round_data.get('round_type', 'early')} round have {roi:.0f}x ROI — high sell pressure risk",
+                        _msg("high_roi", lang, round_type=round_data.get("round_type", "early"), roi=roi),
                         "Cryptorank + CoinGecko",
                         severity=6,
                     ))
@@ -124,28 +173,28 @@ async def cross_check_node(state: dict) -> dict:
     if followers > 50_000 and engagement < 0.001:
         flags.append(_make_flag(
             "red", "social",
-            f"Very low engagement rate ({engagement:.4f}) for {followers:,} followers — possible bot audience",
+            _msg("low_engagement", lang, rate=engagement, followers=followers),
             "Twitter analysis",
             severity=7,
         ))
     if bot_signals:
         flags.append(_make_flag(
             "yellow", "social",
-            f"Bot activity signals detected: {'; '.join(bot_signals[:2])}",
+            _msg("bot_signals", lang, signals="; ".join(bot_signals[:2])),
             "Twitter analysis",
             severity=5,
         ))
     if sentiment < -0.3:
         flags.append(_make_flag(
             "red", "social",
-            f"Negative community sentiment (score: {sentiment:.2f})",
+            _msg("negative_sentiment", lang, score=sentiment),
             "Twitter sentiment analysis",
             severity=6,
         ))
     elif sentiment > 0.5:
         flags.append(_make_flag(
             "green", "social",
-            f"Strong positive community sentiment (score: {sentiment:.2f})",
+            _msg("positive_sentiment", lang, score=sentiment),
             "Twitter sentiment analysis",
             severity=0,
         ))
@@ -158,14 +207,14 @@ async def cross_check_node(state: dict) -> dict:
         if ratio > 10:
             flags.append(_make_flag(
                 "red", "tokenomics",
-                f"FDV/MCap ratio is {ratio:.1f}x — most tokens still locked, large inflation ahead",
+                _msg("high_fdv_extreme", lang, ratio=ratio),
                 "CoinGecko",
                 severity=7,
             ))
         elif ratio > 5:
             flags.append(_make_flag(
                 "yellow", "tokenomics",
-                f"High FDV/MCap ratio ({ratio:.1f}x) — significant token unlocks expected",
+                _msg("high_fdv", lang, ratio=ratio),
                 "CoinGecko",
                 severity=4,
             ))
