@@ -35,6 +35,7 @@ MAX_PAGES = 10
 MAX_TEXT_BYTES = 100_000
 PAGE_TIMEOUT = 15.0
 PAGE_DELAY = 1.0
+SCRAPE_CONCURRENCY = 5
 
 _SKIP_EXTENSIONS = frozenset({
     ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
@@ -106,21 +107,27 @@ def _base_headers(ua: str) -> dict:
     }
 
 
-async def _fetch_html(url: str, ua_counter: list[int]) -> str | None:
+async def _fetch_html(
+    url: str,
+    ua_counter: list[int],
+    session: httpx.AsyncClient | None = None,
+) -> str | None:
     headers = _base_headers(_next_ua(ua_counter))
     try:
-        async with httpx.AsyncClient(
-            timeout=PAGE_TIMEOUT,
-            follow_redirects=True,
-            headers=headers,
-        ) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            # Only process HTML responses
-            ct = resp.headers.get("content-type", "")
-            if "html" not in ct and "text" not in ct:
-                return None
-            return resp.text
+        if session is not None:
+            resp = await session.get(url, headers=headers)
+        else:
+            async with httpx.AsyncClient(
+                timeout=PAGE_TIMEOUT,
+                follow_redirects=True,
+                headers=headers,
+            ) as client:
+                resp = await client.get(url)
+        resp.raise_for_status()
+        ct = resp.headers.get("content-type", "")
+        if "html" not in ct and "text" not in ct:
+            return None
+        return resp.text
     except Exception as e:
         log.debug("scraper.fetch_failed", url=url, error=str(e))
         return None
@@ -402,53 +409,86 @@ class DocumentationScraper:
         """
         BFS crawl from docs_url within the same domain.
         Collects all readable pages — no keyword filter.
-        Returns up to max_pages pages.
+        Returns up to max_pages pages. Uses SCRAPE_CONCURRENCY parallel workers.
         """
         base_netloc = urlparse(docs_url).netloc
         visited: set[str] = set()
-        queue: list[str] = [docs_url]
+        visited_lock = asyncio.Lock()
         pages: list[ScrapedPage] = []
-        total_bytes = 0
+        pages_lock = asyncio.Lock()
+        total_bytes = [0]
+        sem = asyncio.Semaphore(SCRAPE_CONCURRENCY)
 
-        while queue and len(pages) < max_pages and total_bytes < MAX_TEXT_BYTES:
-            url = queue.pop(0)
-            url_clean = url.split("#")[0]
-            if url_clean in visited:
-                continue
-            visited.add(url_clean)
+        queue: asyncio.Queue[str] = asyncio.Queue()
+        await queue.put(docs_url)
 
-            await asyncio.sleep(PAGE_DELAY)
-            html = await _fetch_html(url, self._ua_counter)
-            if not html:
-                continue
-
-            text = _extract_text(html)
-            if not text.strip():
-                continue
-
-            total_bytes += len(text.encode("utf-8"))
-            soup_tmp = BeautifulSoup(html, "lxml")
-            title = _extract_title(soup_tmp)
-            tables = _extract_tables(html)
-            ext_links = _collect_external_links(html, base_netloc)
-            pages.append(ScrapedPage(
-                url=url,
-                title=title,
-                text_content=text[:20_000],
-                tables=tables,
-                external_links=ext_links,
-            ))
-            log.debug("scraper.docs_page_collected", url=url, title=title, ext_links=len(ext_links))
-            if on_page:
+        async def worker():
+            while True:
+                url = await queue.get()
+                url_clean = url.split("#")[0]
                 try:
-                    await on_page(url)
-                except Exception:
-                    pass
+                    if len(pages) >= max_pages or total_bytes[0] >= MAX_TEXT_BYTES:
+                        continue  # drain queue without processing
 
-            new_links = _collect_internal_links(html, url, base_netloc)
-            for link in new_links:
-                if link not in visited:
-                    queue.append(link)
+                    async with visited_lock:
+                        if url_clean in visited:
+                            continue
+                        visited.add(url_clean)
+
+                    async with sem:
+                        html = await _fetch_html(url_clean, self._ua_counter, session=session)
+
+                    if not html:
+                        continue
+
+                    text = _extract_text(html)
+                    if not text.strip():
+                        continue
+
+                    page_bytes = len(text.encode("utf-8"))
+
+                    async with pages_lock:
+                        if len(pages) >= max_pages or total_bytes[0] >= MAX_TEXT_BYTES:
+                            continue
+                        total_bytes[0] += page_bytes
+                        soup_tmp = BeautifulSoup(html, "lxml")
+                        title = _extract_title(soup_tmp)
+                        tables = _extract_tables(html)
+                        ext_links = _collect_external_links(html, base_netloc)
+                        pages.append(ScrapedPage(
+                            url=url_clean,
+                            title=title,
+                            text_content=text[:20_000],
+                            tables=tables,
+                            external_links=ext_links,
+                        ))
+                        log.debug("scraper.docs_page_collected", url=url_clean, title=title, ext_links=len(ext_links))
+
+                    if on_page:
+                        try:
+                            await on_page(url_clean)
+                        except Exception:
+                            pass
+
+                    new_links = _collect_internal_links(html, url_clean, base_netloc)
+                    async with visited_lock:
+                        # Cap queue growth: stop enqueueing once we've discovered
+                        # far more URLs than we'll ever fetch, to avoid runaway
+                        # growth on large API-reference sites.
+                        if len(visited) < max_pages * 4:
+                            for link in new_links:
+                                lc = link.split("#")[0]
+                                if lc not in visited:
+                                    await queue.put(lc)
+                finally:
+                    queue.task_done()
+
+        async with httpx.AsyncClient(timeout=PAGE_TIMEOUT, follow_redirects=True) as session:
+            workers = [asyncio.create_task(worker()) for _ in range(SCRAPE_CONCURRENCY)]
+            await queue.join()
+            for w in workers:
+                w.cancel()
+            await asyncio.gather(*workers, return_exceptions=True)
 
         log.info(
             "scraper.crawl_done",
