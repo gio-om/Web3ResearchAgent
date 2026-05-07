@@ -48,6 +48,11 @@ class AgentState(BaseModel):
     # Пропустить запрос к CryptoRank в aggregator (только CoinGecko)
     skip_cryptorank: bool = False
 
+    # Контекст для предсказания FDV (вводится пользователем перед анализом)
+    fdv_context: dict = Field(default_factory=dict)
+    # Ожидаемая структура:
+    # {"sector": "DeFi", "comparable_fdv_usd": 150_000_000}
+
     # Метаданные пайплайна
     errors: list[str] = Field(default_factory=list)
     status: str = "pending"            # pending | running | completed | failed

@@ -157,3 +157,38 @@ def portfolio_item_keyboard(project_id: int, lang: str = "ru") -> InlineKeyboard
     builder.button(text=t("btn_remove", lang), callback_data=f"portfolio_remove:{project_id}")
     builder.adjust(2)
     return builder.as_markup()
+
+
+# ── FDV prediction context keyboards ─────────────────────────────────────────
+
+def fdv_context_ask_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t("btn_fdv_yes", lang), callback_data="fdv_context:start")
+    builder.button(text=t("btn_fdv_skip", lang), callback_data="fdv_context:skip")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def fdv_sector_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    sector_vals = ["l1l2", "defi", "gaming", "infra", "ai", "nft", "rwa", "other"]
+    for val in sector_vals:
+        builder.button(text=t(f"sector_{val}", lang), callback_data=f"fdv_sector:{val}")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def fdv_comparable_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t("btn_fdv_numeric_skip", lang), callback_data="fdv_comparable:skip")
+    builder.button(text=t("btn_back", lang), callback_data="fdv_back:sector")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def fdv_confirm_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t("btn_fdv_confirm", lang), callback_data="fdv_confirm:yes")
+    builder.button(text=t("btn_back", lang), callback_data="fdv_back:comparable")
+    builder.adjust(1)
+    return builder.as_markup()

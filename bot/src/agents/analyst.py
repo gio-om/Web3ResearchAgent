@@ -1,6 +1,7 @@
 """
 Analyst node: computes final score, generates report, saves to DB.
 """
+import asyncio
 import structlog
 
 log = structlog.get_logger()
@@ -255,6 +256,59 @@ def _calculate_score(
     return overall, scores
 
 
+async def _enrich_rounds_with_fdv_predictions(
+    rounds: list[dict],
+    project_context: dict,
+    user_fdv_context: dict,
+    coingecko_fdv: float | None,
+    lang: str,
+) -> list[dict]:
+    """Add LLM-predicted FDV to rounds where valuation_usd is None."""
+    from src.services.llm import LLMService, LLMError
+    llm = LLMService()
+
+    missing = [r for r in rounds if r.get("valuation_usd") is None]
+    if not missing:
+        return rounds
+
+    known_rounds = [r for r in rounds if r.get("valuation_usd") is not None]
+
+    async def _predict_one(round_dict: dict) -> dict:
+        try:
+            prediction = await llm.predict_fdv(
+                round_data=round_dict,
+                project_context=project_context,
+                user_context=user_fdv_context,
+                comparable_rounds=known_rounds,
+                coingecko_fdv=coingecko_fdv,
+                lang=lang,
+            )
+            if prediction:
+                round_dict = dict(round_dict)
+                round_dict["predicted_valuation_usd"] = prediction.get("predicted_fdv_usd")
+                round_dict["fdv_is_predicted"] = True
+                round_dict["fdv_confidence"] = prediction.get("confidence", "low")
+                round_dict["fdv_confidence_score"] = prediction.get("confidence_score", 0.0)
+                round_dict["fdv_range_low_usd"] = prediction.get("fdv_range_low_usd")
+                round_dict["fdv_range_high_usd"] = prediction.get("fdv_range_high_usd")
+                round_dict["fdv_methodology"] = prediction.get("methodology")
+        except (LLMError, Exception) as e:
+            log.warning("analyst.fdv_prediction_failed", round=round_dict.get("round_name"), error=str(e))
+        return round_dict
+
+    predictions = await asyncio.gather(*[_predict_one(r) for r in missing])
+
+    # Reconstruct original order
+    result = []
+    pred_iter = iter(predictions)
+    for r in rounds:
+        if r.get("valuation_usd") is None:
+            result.append(next(pred_iter))
+        else:
+            result.append(r)
+    return result
+
+
 async def _load_prev_report(project_slug: str, user_id: int) -> dict:
     """Load the latest completed report for this project+user from DB."""
     try:
@@ -416,7 +470,22 @@ async def analyst_node(state: dict) -> dict:
                 "fdv_usd": coingecko.get("fdv_usd"),
                 "market_cap_usd": coingecko.get("market_cap_usd"),
             }
-            report["funding_rounds"] = _build_funding_rounds(cr.get("funding_rounds", []))
+            raw_rounds = _build_funding_rounds(cr.get("funding_rounds", []))
+            fdv_context = state.get("fdv_context") or {}
+            cr_project = (aggregator_data.get("cryptorank", {}) or {}).get("project", {}) or {}
+            project_ctx = {
+                "project_name": project_name,
+                "category": cr_project.get("category"),
+                "token_symbol": cr_project.get("symbol"),
+                "max_supply": cr_project.get("max_supply") or cr_project.get("total_supply"),
+            }
+            report["funding_rounds"] = await _enrich_rounds_with_fdv_predictions(
+                raw_rounds,
+                project_ctx,
+                fdv_context,
+                coingecko.get("fdv_usd"),
+                state.get("lang", "ru"),
+            )
             report["investors"] = _build_investor_list(
                 cr.get("investors_list", []),
                 cr.get("funding_rounds", []),

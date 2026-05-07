@@ -138,6 +138,43 @@ TEXTS: dict[str, dict[str, str]] = {
         "added_to_portfolio": "✅ Добавлено в портфель",
         "report_not_found": "❌ Отчёт не найден",
         "error_generic": "❌ Ошибка: {error}",
+        # FDV prediction context collection
+        "fdv_context_question": (
+            "💡 <b>Оценка FDV раундов</b>\n\n"
+            "Некоторые раунды могут не раскрывать оценку. "
+            "Хотите предоставить контекст, чтобы LLM сделала прогноз FDV?\n\n"
+            "<i>Занимает ~30 секунд, значительно улучшает точность.</i>"
+        ),
+        "btn_fdv_yes": "✅ Да, указать контекст",
+        "btn_fdv_skip": "⏭ Пропустить",
+        "fdv_sector_prompt": "🏷 <b>Сектор проекта:</b>",
+        "fdv_comparable_prompt": (
+            "🔗 <b>FDV похожего проекта в $M</b> (опционально)\n\n"
+            "Введите число в миллионах, например <code>150</code> (= $150M), или нажмите «Пропустить»:"
+        ),
+        "fdv_comparable_invalid": "❌ Некорректное значение. Введите число в миллионах (например 150) или нажмите «Пропустить».",
+        "fdv_context_saved": "✅ Контекст сохранён. Запускаю анализ...",
+        # FDV skip button
+        "btn_fdv_numeric_skip": "⏭ Пропустить",
+        # FDV confirmation
+        "fdv_confirm_prompt": (
+            "✅ <b>Подтвердите параметры</b>\n\n"
+            "Проект: <b>{query}</b>\n"
+            "Сектор: <b>{sector}</b>\n"
+            "FDV аналога: <b>{comparable}</b>\n\n"
+            "Запустить анализ?"
+        ),
+        "btn_fdv_confirm": "🚀 Запустить анализ",
+        "fdv_comparable_none": "не указан",
+        # Sector display labels
+        "sector_l1l2": "L1/L2",
+        "sector_defi": "DeFi",
+        "sector_gaming": "Gaming/GameFi",
+        "sector_infra": "Инфраструктура",
+        "sector_ai": "AI/Data",
+        "sector_nft": "NFT/Metaverse",
+        "sector_rwa": "RWA",
+        "sector_other": "Другое",
     },
     "en": {
         # Start / welcome
@@ -278,6 +315,43 @@ TEXTS: dict[str, dict[str, str]] = {
         "added_to_portfolio": "✅ Added to portfolio",
         "report_not_found": "❌ Report not found",
         "error_generic": "❌ Error: {error}",
+        # FDV prediction context collection
+        "fdv_context_question": (
+            "💡 <b>FDV Round Valuation</b>\n\n"
+            "Some rounds may not disclose their valuation. "
+            "Want to provide context so the LLM can predict FDV?\n\n"
+            "<i>Takes ~30 seconds and significantly improves accuracy.</i>"
+        ),
+        "btn_fdv_yes": "✅ Yes, provide context",
+        "btn_fdv_skip": "⏭ Skip",
+        "fdv_sector_prompt": "🏷 <b>Project sector:</b>",
+        "fdv_comparable_prompt": (
+            "🔗 <b>FDV of a comparable project in $M</b> (optional)\n\n"
+            "Enter a number in millions, e.g. <code>150</code> (= $150M), or press Skip:"
+        ),
+        "fdv_comparable_invalid": "❌ Invalid value. Enter a number in millions (e.g. 150) or press Skip.",
+        "fdv_context_saved": "✅ Context saved. Starting analysis...",
+        # FDV skip button
+        "btn_fdv_numeric_skip": "⏭ Skip",
+        # FDV confirmation
+        "fdv_confirm_prompt": (
+            "✅ <b>Confirm parameters</b>\n\n"
+            "Project: <b>{query}</b>\n"
+            "Sector: <b>{sector}</b>\n"
+            "Comparable FDV: <b>{comparable}</b>\n\n"
+            "Start analysis?"
+        ),
+        "btn_fdv_confirm": "🚀 Start analysis",
+        "fdv_comparable_none": "not specified",
+        # Sector display labels
+        "sector_l1l2": "L1/L2",
+        "sector_defi": "DeFi",
+        "sector_gaming": "Gaming/GameFi",
+        "sector_infra": "Infrastructure",
+        "sector_ai": "AI/Data",
+        "sector_nft": "NFT/Metaverse",
+        "sector_rwa": "RWA",
+        "sector_other": "Other",
     },
 }
 

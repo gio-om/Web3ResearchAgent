@@ -15,7 +15,11 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from src.bot.i18n import t
-from src.bot.keyboards import analysis_type_keyboard, docs_link_keyboard, report_keyboard
+from src.bot.keyboards import (
+    analysis_type_keyboard, docs_link_keyboard, report_keyboard,
+    fdv_context_ask_keyboard, fdv_sector_keyboard, fdv_comparable_keyboard,
+    fdv_confirm_keyboard,
+)
 
 router = Router(name="analyze")
 
@@ -24,6 +28,11 @@ class AnalysisStates(StatesGroup):
     choosing_mode = State()
     asking_docs_link = State()   # waiting for yes/no on user-provided docs URL
     waiting_docs_url = State()   # waiting for the user to type the docs URL
+    # FDV prediction context collection
+    asking_fdv_context = State()   # yes/no gate
+    fdv_sector = State()
+    fdv_comparable = State()       # text or skip
+    fdv_confirm = State()          # confirmation before running
 
 
 _MODE_MODULES: dict[str, list[str]] = {
@@ -194,12 +203,159 @@ async def cb_analysis_type(callback: CallbackQuery, state: FSMContext, lang: str
         )
         return
 
+    # For modes with aggregator: offer FDV context collection
+    if "aggregator" in _MODE_MODULES.get(mode, []):
+        await state.set_state(AnalysisStates.asking_fdv_context)
+        await state.update_data(query=query, user_id=user_id, lang=stored_lang, mode=mode)
+        await callback.message.edit_text(
+            t("fdv_context_question", stored_lang),
+            reply_markup=fdv_context_ask_keyboard(stored_lang),
+        )
+        return
+
     await state.clear()
     mode_label = t(_MODE_LABEL_KEY[mode], stored_lang)
     await callback.message.edit_text(
         t("project_mode_label", stored_lang, query=query, mode=mode_label)
     )
     await _run_analysis(callback.message, query, mode, stored_lang, user_id=user_id)
+
+
+# ── FDV context: skip ─────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "fdv_context:skip")
+async def cb_fdv_context_skip(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
+    fsm_data = await state.get_data()
+    query = fsm_data.get("query", "")
+    user_id = fsm_data.get("user_id") or callback.from_user.id
+    stored_lang = fsm_data.get("lang", lang)
+    mode = fsm_data.get("mode", "full")
+    await state.clear()
+    await callback.answer()
+    mode_label = t(_MODE_LABEL_KEY[mode], stored_lang)
+    await callback.message.edit_text(
+        t("project_mode_label", stored_lang, query=query, mode=mode_label)
+    )
+    await _run_analysis(callback.message, query, mode, stored_lang, user_id=user_id)
+
+
+# ── FDV context: start → collect 6 params ────────────────────────────────────
+
+@router.callback_query(F.data == "fdv_context:start")
+async def cb_fdv_context_start(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
+    fsm_data = await state.get_data()
+    stored_lang = fsm_data.get("lang", lang)
+    await state.set_state(AnalysisStates.fdv_sector)
+    await callback.answer()
+    await callback.message.edit_text(
+        t("fdv_sector_prompt", stored_lang),
+        reply_markup=fdv_sector_keyboard(stored_lang),
+    )
+
+
+@router.callback_query(F.data.startswith("fdv_sector:"))
+async def cb_fdv_sector(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
+    value = callback.data.split(":", 1)[1]
+    fsm_data = await state.get_data()
+    stored_lang = fsm_data.get("lang", lang)
+    await state.update_data(fdv_sector=value)
+    await state.set_state(AnalysisStates.fdv_comparable)
+    await callback.answer()
+    await callback.message.edit_text(
+        t("fdv_comparable_prompt", stored_lang),
+        reply_markup=fdv_comparable_keyboard(stored_lang),
+    )
+
+
+async def _build_fdv_confirm(state: FSMContext, lang: str) -> tuple[str, object, str]:
+    """Returns (text, markup, stored_lang) for the FDV confirmation screen."""
+    fsm_data = await state.get_data()
+    stored_lang = fsm_data.get("lang", lang)
+    query = fsm_data.get("query", "")
+    sector_key = fsm_data.get("fdv_sector", "")
+    comparable = fsm_data.get("fdv_comparable")
+    sector_label = t(f"sector_{sector_key}", stored_lang) if sector_key else "—"
+    comparable_label = _fmt_usd(comparable) if comparable else t("fdv_comparable_none", stored_lang)
+    text = t("fdv_confirm_prompt", stored_lang, query=query, sector=sector_label, comparable=comparable_label)
+    return text, fdv_confirm_keyboard(stored_lang), stored_lang
+
+
+@router.callback_query(F.data == "fdv_comparable:skip")
+async def cb_fdv_comparable_skip(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
+    await state.update_data(fdv_comparable=None)
+    await state.set_state(AnalysisStates.fdv_confirm)
+    await callback.answer()
+    text, markup, _ = await _build_fdv_confirm(state, lang)
+    await callback.message.edit_text(text, reply_markup=markup)
+
+
+@router.message(AnalysisStates.fdv_comparable, F.text)
+async def handle_fdv_comparable_input(message: Message, state: FSMContext, lang: str = "ru") -> None:
+    fsm_data = await state.get_data()
+    stored_lang = fsm_data.get("lang", lang)
+    raw = message.text.strip().replace(",", "").replace("$", "").replace("M", "").replace("m", "")
+    try:
+        value_m = float(raw)
+        if value_m <= 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        await message.answer(t("fdv_comparable_invalid", stored_lang),
+                             reply_markup=fdv_comparable_keyboard(stored_lang))
+        return
+    await state.update_data(fdv_comparable=int(value_m * 1_000_000))
+    await state.set_state(AnalysisStates.fdv_confirm)
+    text, markup, _ = await _build_fdv_confirm(state, stored_lang)
+    await message.answer(text, reply_markup=markup)
+
+
+# ── FDV back navigation ────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "fdv_back:sector")
+async def cb_fdv_back_sector(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
+    fsm_data = await state.get_data()
+    stored_lang = fsm_data.get("lang", lang)
+    await state.set_state(AnalysisStates.fdv_sector)
+    await callback.answer()
+    await callback.message.edit_text(
+        t("fdv_sector_prompt", stored_lang),
+        reply_markup=fdv_sector_keyboard(stored_lang),
+    )
+
+
+@router.callback_query(F.data == "fdv_back:comparable")
+async def cb_fdv_back_comparable(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
+    fsm_data = await state.get_data()
+    stored_lang = fsm_data.get("lang", lang)
+    await state.set_state(AnalysisStates.fdv_comparable)
+    await callback.answer()
+    await callback.message.edit_text(
+        t("fdv_comparable_prompt", stored_lang),
+        reply_markup=fdv_comparable_keyboard(stored_lang),
+    )
+
+
+@router.callback_query(F.data == "fdv_confirm:yes")
+async def cb_fdv_confirm(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
+    fsm_data = await state.get_data()
+    stored_lang = fsm_data.get("lang", lang)
+    await callback.answer()
+    await callback.message.edit_text(t("fdv_context_saved", stored_lang))
+    await _finalize_fdv_context(callback.message, state, callback.from_user.id, lang)
+
+
+async def _finalize_fdv_context(message: Message, state: FSMContext, user_id: int, lang: str) -> None:
+    fsm_data = await state.get_data()
+    stored_lang = fsm_data.get("lang", lang)
+    query = fsm_data.get("query", "")
+    resolved_user_id = fsm_data.get("user_id") or user_id
+    mode = fsm_data.get("mode", "full")
+    fdv_context = {
+        "sector": fsm_data.get("fdv_sector"),
+        "comparable_fdv_usd": fsm_data.get("fdv_comparable"),
+    }
+    await state.clear()
+    await _run_analysis(message, query, mode, stored_lang, user_id=resolved_user_id,
+                        fdv_context=fdv_context)
 
 
 @router.callback_query(F.data.startswith("reanalyze:"))
@@ -251,7 +407,15 @@ async def _load_user_settings(user_id: int) -> dict:
         return {}
 
 
-async def _run_analysis(message: Message, query: str, mode: str = "full", lang: str = "ru", user_id: int = 0, docs_url: str = "") -> None:
+async def _run_analysis(
+    message: Message,
+    query: str,
+    mode: str = "full",
+    lang: str = "ru",
+    user_id: int = 0,
+    docs_url: str = "",
+    fdv_context: dict | None = None,
+) -> None:
     from src.agents.graph import build_analysis_graph
     from src.schemas.agent_state import AgentState
     from datetime import datetime, timezone
@@ -272,6 +436,7 @@ async def _run_analysis(message: Message, query: str, mode: str = "full", lang: 
         lang=lang,
         skip_cryptorank=(mode == "market"),
         project_urls={"docs": docs_url} if docs_url else {},
+        fdv_context=fdv_context or {},
     )
 
     try:

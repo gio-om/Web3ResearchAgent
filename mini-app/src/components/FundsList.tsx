@@ -82,7 +82,11 @@ function InvestorModal({ round, onClose, lang }: InvestorModalProps) {
             <p className="text-xs text-gray-400 mt-0.5">
               {formatDate(round.date, lang)}
               {round.amount_usd != null && ` · ${t("raised", lang)} ${formatUsd(round.amount_usd)}`}
-              {round.valuation_usd != null && ` · ${t("valuation", lang)} ${formatUsd(round.valuation_usd)}`}
+              {round.valuation_usd != null
+                ? ` · ${t("valuation", lang)} ${formatUsd(round.valuation_usd)}`
+                : round.fdv_is_predicted && round.predicted_valuation_usd != null
+                  ? ` · ${t("predicted_val", lang)} ~${formatUsd(round.predicted_valuation_usd)}`
+                  : null}
             </p>
           </div>
           <button
@@ -105,6 +109,45 @@ function InvestorModal({ round, onClose, lang }: InvestorModalProps) {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function PredictedValuation({ round, lang }: { round: FundingRound; lang: Lang }) {
+  const [expanded, setExpanded] = useState(false);
+  const conf = round.fdv_confidence ?? "low";
+  const confColor = {
+    high: "bg-green-100 text-green-700",
+    medium: "bg-yellow-100 text-yellow-700",
+    low: "bg-gray-100 text-gray-500",
+  }[conf];
+
+  return (
+    <div className="text-right">
+      <div className="text-[10px] text-gray-400 leading-none mb-0.5 flex items-center justify-end gap-1">
+        {t("predicted_val", lang)}
+        <span className={`text-[9px] font-semibold px-1 rounded ${confColor}`}>
+          {t(`conf_${conf}` as Parameters<typeof t>[0], lang)}
+        </span>
+      </div>
+      <button
+        className="text-sm font-bold text-indigo-500 hover:text-indigo-700 transition-colors"
+        onClick={() => setExpanded(e => !e)}
+      >
+        ~{formatUsd(round.predicted_valuation_usd!)}
+      </button>
+      {expanded && (
+        <div className="mt-1 text-[10px] text-gray-500 text-left bg-indigo-50 rounded-lg p-2 max-w-[200px]">
+          {round.fdv_range_low_usd != null && round.fdv_range_high_usd != null && (
+            <p className="font-medium">
+              {t("fdv_range_label", lang)}: {formatUsd(round.fdv_range_low_usd)} – {formatUsd(round.fdv_range_high_usd)}
+            </p>
+          )}
+          {round.fdv_methodology && (
+            <p className="mt-0.5 italic">{round.fdv_methodology}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -147,12 +190,14 @@ function RoundCard({ round, lang }: RoundCardProps) {
                 <div className="text-sm font-bold text-gray-900">{formatUsd(round.amount_usd)}</div>
               </div>
             )}
-            {round.valuation_usd != null && (
+            {round.valuation_usd != null ? (
               <div className="text-right">
                 <div className="text-[10px] text-gray-400 leading-none mb-0.5">{t("valuation", lang)}</div>
                 <div className="text-sm font-bold text-gray-900">{formatUsd(round.valuation_usd)}</div>
               </div>
-            )}
+            ) : round.fdv_is_predicted && round.predicted_valuation_usd != null ? (
+              <PredictedValuation round={round} lang={lang} />
+            ) : null}
           </div>
         </div>
 

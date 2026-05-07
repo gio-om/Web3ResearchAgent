@@ -10,8 +10,10 @@ All public methods:
 - Raise LLMError on unrecoverable failures.
 """
 import asyncio
+import hashlib
 import json
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 import structlog
@@ -270,3 +272,150 @@ Return JSON:
                 "strengths": [],
                 "weaknesses": [],
             }
+
+    async def predict_fdv(
+        self,
+        round_data: dict,
+        project_context: dict,
+        user_context: dict,
+        comparable_rounds: list[dict],
+        coingecko_fdv: float | None,
+        lang: str = "ru",
+    ) -> dict:
+        """Predict FDV for a funding round where valuation_usd is None.
+
+        Returns dict with predicted_fdv_usd, fdv_range_low_usd, fdv_range_high_usd,
+        confidence (low|medium|high), confidence_score, methodology, key_assumptions,
+        implied_multiple.
+        Returns {} on failure.
+        """
+        # Shortcut: token_price × total_supply avoids LLM entirely
+        token_price = round_data.get("token_price")
+        total_supply = project_context.get("max_supply")
+        if token_price and total_supply:
+            try:
+                fdv = float(token_price) * float(total_supply)
+                return {
+                    "predicted_fdv_usd": int(fdv),
+                    "fdv_range_low_usd": int(fdv * 0.9),
+                    "fdv_range_high_usd": int(fdv * 1.1),
+                    "confidence": "high",
+                    "confidence_score": 0.95,
+                    "methodology": (
+                        "Вычислено напрямую: цена токена × общий supply."
+                        if lang == "ru" else
+                        "Computed directly: token_price × total_supply."
+                    ),
+                    "key_assumptions": [],
+                    "implied_multiple": round(fdv / round_data["amount_usd"], 1) if round_data.get("amount_usd") else None,
+                }
+            except (TypeError, ValueError, ZeroDivisionError):
+                pass
+
+        lang_instruction = (
+            "Write methodology and key_assumptions in Russian. "
+            "Keep terms like FDV, MCap, Seed, Series A, TGE, DeFi, L1, L2, DAO as-is."
+            if lang == "ru" else
+            "Write methodology and key_assumptions in English. "
+            "Keep terms like FDV, MCap, Seed, Series A, TGE, DeFi, L1, L2, DAO as-is."
+        )
+
+        anchors_block = ""
+        if coingecko_fdv:
+            anchors_block += f"\nCurrent live FDV (CoinGecko): ${coingecko_fdv:,.0f} — use as reference for post-TGE trajectory."
+        if comparable_rounds:
+            lines = []
+            for r in comparable_rounds[:5]:
+                lines.append(f"  - {r.get('round_name', 'Round')} ({r.get('date', '?')}): raised ${r.get('amount_usd') or 0:,.0f}, valuation ${r.get('valuation_usd') or 0:,.0f}")
+            anchors_block += "\nKnown valuations for same project:\n" + "\n".join(lines)
+        if user_context.get("comparable_fdv_usd"):
+            anchors_block += f"\nUser-provided comparable FDV anchor: ${user_context['comparable_fdv_usd']:,.0f}"
+
+        user_ctx_block = ""
+        if user_context.get("sector"):
+            user_ctx_block += f"\n- Sector: {user_context['sector']}"
+        if total_supply:
+            user_ctx_block += f"\n- Total token supply: {total_supply:,}"
+
+        investors_str = ""
+        for inv in (round_data.get("investors") or [])[:10]:
+            name = inv.get("name", inv) if isinstance(inv, dict) else str(inv)
+            tier = inv.get("tier") if isinstance(inv, dict) else None
+            investors_str += f"\n  - {name}" + (f" (Tier {tier})" if tier else "")
+
+        prompt = f"""You are a senior crypto venture analyst specializing in pre-TGE token valuations.
+{lang_instruction}
+
+## Round being valued
+- Round type: {round_data.get('round_name') or round_data.get('round_type', 'Unknown')}
+- Date: {round_data.get('date', 'Unknown')}
+- Amount raised: ${round_data.get('amount_usd') or 0:,.0f}
+- Investors:{investors_str if investors_str else ' unknown'}
+
+## Project context
+- Name: {project_context.get('project_name', 'Unknown')}
+- Category: {project_context.get('category') or 'Unknown'}
+- Token symbol: {project_context.get('token_symbol') or 'Unknown'}
+
+## User-provided context{user_ctx_block if user_ctx_block else chr(10) + '- No additional context provided'}
+
+## Anchor data{anchors_block if anchors_block else chr(10) + '- No anchor data available'}
+
+## Instructions
+Use comparable-transactions methodology:
+- Infer the market cycle from the round date (e.g. Nov 2021 = peak bull, 2022 = bear, 2023 H1 = neutral, 2023 H2–2024 = bull, 2025 = neutral/bear)
+- Infer the product stage from the round type (Seed/Pre-Seed = idea or testnet, Series A = mainnet-early, Series B+ = mainnet-mature)
+- Assess lead investor quality from the investor list provided above
+- For bear market: apply 0.3–0.5x to median sector valuations
+- For neutral market: apply 0.8–1.2x to median sector valuations
+- For bull market: apply 1.5–3x to median sector valuations
+- For peak bull: apply 3–5x to median sector valuations
+- Consider the implied multiple (FDV / amount_raised): typical Seed = 20–100x, Series A = 10–40x
+- Provide a range (low/high), not just a point estimate
+- Be explicit about key assumptions
+
+Return JSON only:
+{{
+  "predicted_fdv_usd": <integer>,
+  "fdv_range_low_usd": <integer>,
+  "fdv_range_high_usd": <integer>,
+  "confidence": "<low|medium|high>",
+  "confidence_score": <float 0.0-1.0>,
+  "methodology": "<1-2 sentences>",
+  "key_assumptions": ["<assumption>"],
+  "implied_multiple": <float>
+}}"""
+
+        raw = await self._call(prompt, max_tokens=1024)
+        try:
+            result = _parse_json(raw, context="predict_fdv")
+            if not isinstance(result, dict) or "predicted_fdv_usd" not in result:
+                return {}
+            # Apply deterministic confidence scoring on top of LLM value
+            base = 0.5
+            if total_supply:
+                base += 0.15
+            if comparable_rounds:
+                base += 0.10
+            if coingecko_fdv:
+                base += 0.10
+            if user_context.get("comparable_fdv_usd"):
+                base += 0.10
+            round_date = round_data.get("date") or ""
+            if round_date:
+                try:
+                    age_years = (datetime.now(timezone.utc) - datetime.fromisoformat(round_date.replace("Z", "+00:00"))).days / 365
+                    if age_years > 3:
+                        base -= 0.15
+                except (ValueError, TypeError):
+                    pass
+            if (user_context.get("sector") or "").lower() == "other":
+                base -= 0.10
+            conf_score = round(max(0.1, min(0.9, base)), 2)
+            conf_label = "high" if conf_score >= 0.7 else ("medium" if conf_score >= 0.45 else "low")
+            result["confidence_score"] = conf_score
+            result["confidence"] = conf_label
+            return result
+        except LLMError:
+            log.warning("llm.predict_fdv_failed", round=round_data.get("round_name"))
+            return {}

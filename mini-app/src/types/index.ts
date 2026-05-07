@@ -36,6 +36,14 @@ export interface FundingRound {
   valuation_usd: number | null;
   investors?: InvestorChip[];
   announcement?: string | null;
+  // FDV prediction fields (present when valuation_usd is null and prediction ran)
+  predicted_valuation_usd?: number | null;
+  fdv_is_predicted?: boolean;
+  fdv_confidence?: "low" | "medium" | "high";
+  fdv_confidence_score?: number;
+  fdv_range_low_usd?: number | null;
+  fdv_range_high_usd?: number | null;
+  fdv_methodology?: string | null;
 }
 
 export interface InvestorInfo {

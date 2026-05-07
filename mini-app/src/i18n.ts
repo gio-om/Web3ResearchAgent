@@ -70,6 +70,13 @@ const TR = {
     col_stage: "Stage",
     lead_badge: "Lead",
     no_investor_data: "No investor data",
+    // FDV prediction
+    predicted_val: "Pred. FDV",
+    conf_high: "High",
+    conf_medium: "Med.",
+    conf_low: "Low",
+    fdv_range_label: "Range",
+    fdv_methodology_label: "Method",
     // VestingChart
     no_vesting_data: "No vesting data available.",
     allocation: "Allocation",
@@ -159,6 +166,13 @@ const TR = {
     col_stage: "Стадия",
     lead_badge: "Лид",
     no_investor_data: "Нет данных об инвесторах",
+    // FDV prediction
+    predicted_val: "Прогн. FDV",
+    conf_high: "Высок.",
+    conf_medium: "Средн.",
+    conf_low: "Низкая",
+    fdv_range_label: "Диапазон",
+    fdv_methodology_label: "Метод",
     // VestingChart
     no_vesting_data: "Данные о вестинге недоступны.",
     allocation: "Аллокация",
