@@ -195,17 +195,17 @@ function InvestorTable({ investors, lang }: { investors: InvestorInfo[]; lang: L
   return (
     <div className="bg-white rounded-xl shadow-sm overflow-hidden">
       {/* Table header */}
-      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-4 py-2.5 border-b border-gray-100">
+      <div className="grid grid-cols-[1fr_40px_80px_90px] gap-x-4 px-4 py-2.5 border-b border-gray-100">
         <span className="text-xs font-semibold text-gray-400">{t("col_name", lang)}</span>
-        <span className="text-xs font-semibold text-gray-400 text-center w-8">{t("col_tier", lang)}</span>
-        <span className="text-xs font-semibold text-gray-400 w-20">{t("col_type", lang)}</span>
-        <span className="text-xs font-semibold text-gray-400 w-24">{t("col_stage", lang)}</span>
+        <span className="text-xs font-semibold text-gray-400 text-center">{t("col_tier", lang)}</span>
+        <span className="text-xs font-semibold text-gray-400">{t("col_type", lang)}</span>
+        <span className="text-xs font-semibold text-gray-400">{t("col_stage", lang)}</span>
       </div>
 
       {/* Rows */}
       <div className="divide-y divide-gray-50">
         {slice.map((inv, i) => (
-          <div key={i} className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-4 py-3 items-center">
+          <div key={i} className="grid grid-cols-[1fr_40px_80px_90px] gap-x-4 px-4 py-3 items-center">
             {/* Name + avatar */}
             <div className="flex items-center gap-2 min-w-0">
               <InvestorAvatar inv={{ name: inv.name, logo: inv.logo }} size={7} />
@@ -218,17 +218,17 @@ function InvestorTable({ investors, lang }: { investors: InvestorInfo[]; lang: L
             </div>
 
             {/* Tier */}
-            <span className="text-sm text-gray-600 text-center w-8">
+            <span className="text-sm text-gray-600 text-center">
               {inv.tier ?? "—"}
             </span>
 
             {/* Type / category */}
-            <span className="text-sm text-gray-600 w-20 truncate capitalize">
+            <span className="text-sm text-gray-600 truncate capitalize">
               {inv.category ?? "—"}
             </span>
 
             {/* Stages */}
-            <div className="flex flex-wrap gap-1 w-24">
+            <div className="flex flex-wrap gap-1">
               {(inv.stages && inv.stages.length > 0)
                 ? inv.stages.map((s, j) => (
                     <span key={j} className="text-[10px] bg-gray-100 text-gray-600 rounded px-1.5 py-0.5 whitespace-nowrap">

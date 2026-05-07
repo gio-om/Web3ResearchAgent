@@ -191,35 +191,71 @@ _ROUND_TYPE_MAP = {
 
 
 def _map_round_type(raw: str) -> str:
-    return _ROUND_TYPE_MAP.get(raw.upper() if raw else "", raw or "Unknown")
+    if not raw:
+        return "Unknown"
+    normalized = raw.upper().replace(" ", "_")
+    return _ROUND_TYPE_MAP.get(normalized) or _ROUND_TYPE_MAP.get(raw.upper()) or raw
 
 
 def _extract_investors(investors) -> list[dict]:
     """
-    Extract investor {name, logo} from funding round investor objects.
+    Extract investor {name, logo, tier, is_lead} from funding round investor objects.
 
     Handles two formats:
-      - tiered dict: {tier1/tier2/.../tier5/angel/other: [{name, logo, ...}]}
-      - flat list:   [{name, logo/image, ...}]
+      - tiered dict: {tier1/tier2/.../tier5/lead/angel/other: [{name, logo, ...}]}
+        → tier number derived from bucket key; "lead" bucket sets is_lead=True
+      - flat list:   [{name, logo/image, tier, isLead, ...}]
     """
     result: list[dict] = []
     seen: set[str] = set()
 
     if isinstance(investors, dict):
-        all_invs: list = []
-        for key in ("tier1", "tier2", "tier3", "tier4", "tier5", "angel", "other"):
-            all_invs.extend(investors.get(key) or [])
-        for inv in all_invs:
+        _TIER_KEYS = {
+            "tier1": 1, "tier2": 2, "tier3": 3,
+            "tier4": 4, "tier5": 5,
+            "angel": None, "other": None,
+        }
+        for key, tier_num in _TIER_KEYS.items():
+            for inv in investors.get(key) or []:
+                name = inv.get("name") or inv.get("slug", "")
+                if name and name not in seen:
+                    seen.add(name)
+                    # "type" field is "LEAD"/"NORMAL" (lead indicator, not category)
+                    is_lead = (inv.get("type") == "LEAD"
+                               or bool(inv.get("isLead") or inv.get("is_lead")))
+                    result.append({
+                        "name": name,
+                        "logo": inv.get("logo") or inv.get("image"),
+                        "tier": inv.get("tier") if inv.get("tier") is not None else tier_num,
+                        "category": inv.get("category"),
+                        "is_lead": is_lead,
+                    })
+        # Explicit "lead" bucket
+        for inv in investors.get("lead") or []:
             name = inv.get("name") or inv.get("slug", "")
             if name and name not in seen:
                 seen.add(name)
-                result.append({"name": name, "logo": inv.get("logo")})
+                result.append({
+                    "name": name,
+                    "logo": inv.get("logo") or inv.get("image"),
+                    "tier": inv.get("tier"),
+                    "category": inv.get("category"),
+                    "is_lead": True,
+                })
     elif isinstance(investors, list):
         for inv in investors:
             name = inv.get("name") or inv.get("slug", "")
             if name and name not in seen:
                 seen.add(name)
-                result.append({"name": name, "logo": inv.get("logo") or inv.get("image")})
+                is_lead = (inv.get("type") == "LEAD"
+                           or bool(inv.get("isLead") or inv.get("is_lead")))
+                result.append({
+                    "name": name,
+                    "logo": inv.get("logo") or inv.get("image"),
+                    "tier": inv.get("tier"),
+                    "category": inv.get("category"),
+                    "is_lead": is_lead,
+                })
 
     return result
 
@@ -497,7 +533,7 @@ class CryptoRankClient:
         Returns list of:
             {name, logo, tier, category, is_lead, stage}
         """
-        cache_key = f"cr:investors2:{project_id}"
+        cache_key = f"cr:investors4:{project_id}"
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
@@ -515,17 +551,34 @@ class CryptoRankClient:
             return []
 
         log.info("cryptorank.investors_list.raw", slug=project_id, keys=list(data.keys())[:8])
+        raw_list = data.get("investors") or data.get("data") or []
+        if raw_list:
+            log.info("cryptorank.investors_list.first_item", slug=project_id,
+                     sample=dict(list(raw_list[0].items())[:15]))
         result = []
-        for inv in data.get("investors") or data.get("data") or []:
+        for inv in raw_list:
             name = inv.get("name") or inv.get("slug", "")
             if not name:
                 continue
+            # Tier: try all known field name variants (value is 1/2/3/null)
+            tier_val = (
+                inv.get("tier") if inv.get("tier") is not None else
+                inv.get("investorTier") if inv.get("investorTier") is not None else
+                inv.get("rank") if inv.get("rank") is not None else
+                None
+            )
+            category_val = (
+                inv.get("category")
+                or inv.get("type")
+                or inv.get("kind")
+                or inv.get("investorType")
+            )
             result.append({
                 "name": name,
-                "logo": inv.get("image"),
-                "tier": inv.get("tier"),
-                "category": inv.get("category"),
-                "is_lead": inv.get("isLead", False),
+                "logo": inv.get("image") or inv.get("logo"),
+                "tier": tier_val,
+                "category": category_val,
+                "is_lead": bool(inv.get("isLead") or inv.get("is_lead")),
                 "stage": inv.get("stage") or [],
             })
 

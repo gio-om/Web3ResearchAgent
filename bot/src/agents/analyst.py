@@ -64,38 +64,98 @@ def _build_funding_rounds(funding_rounds: list) -> list[dict]:
 
 def _build_investor_list(investors_list: list, funding_rounds: list) -> list[dict]:
     """
-    Build deduplicated investor list.
-    Prefers investors_list (has logos + tiers) from /investors-list endpoint;
-    falls back to extracting from funding_rounds if investors_list is empty.
+    Build deduplicated investor list with tier, lead, category.
+
+    Strategy:
+      1. Build a name→{tier, is_lead, round} lookup from per-round investor data
+         (tier comes from the bucket key: tier1→1, tier2→2, etc.)
+      2. If investors_list is available (has category/stage info), use it as base
+         and fill in missing tier/is_lead from the round lookup.
+      3. Otherwise fall back to the round-derived data.
     """
+    # Step 1: build per-round meta lookup
+    round_meta: dict[str, dict] = {}
+    for r in funding_rounds or []:
+        round_type = r.get("round_type", "")
+        for inv in r.get("investors", []):
+            if not isinstance(inv, dict):
+                continue
+            name = inv.get("name", "")
+            if not name:
+                continue
+            if name not in round_meta:
+                round_meta[name] = {
+                    "tier": inv.get("tier"),
+                    "is_lead": bool(inv.get("is_lead")),
+                    "category": inv.get("category"),
+                    "round": round_type,
+                }
+            else:
+                if inv.get("tier") is not None and round_meta[name]["tier"] is None:
+                    round_meta[name]["tier"] = inv["tier"]
+                if inv.get("is_lead"):
+                    round_meta[name]["is_lead"] = True
+                if inv.get("category") and not round_meta[name].get("category"):
+                    round_meta[name]["category"] = inv["category"]
+
+    # Step 2: use investors_list as base, enrich with round_meta
     if investors_list:
-        return [
-            {
-                "name": inv.get("name", ""),
+        result = []
+        for inv in investors_list:
+            name = inv.get("name", "")
+            if not name:
+                continue
+            meta = round_meta.get(name, {})
+            tier = inv.get("tier") if inv.get("tier") is not None else meta.get("tier")
+            is_lead = bool(inv.get("is_lead")) or meta.get("is_lead", False)
+            category = inv.get("category") or meta.get("category")
+            stages = inv.get("stage") or []
+            result.append({
+                "name": name,
                 "logo": inv.get("logo"),
-                "tier": str(inv["tier"]) if inv.get("tier") is not None else None,
-                "round": (inv.get("stage") or [""])[0],
-                "stages": inv.get("stage") or [],
-                "category": inv.get("category"),
-                "is_lead": inv.get("is_lead", False),
+                "tier": str(tier) if tier is not None else None,
+                "round": meta.get("round") or (stages[0] if stages else ""),
+                "stages": stages,
+                "category": category,
+                "is_lead": is_lead,
                 "portfolio_notable": [],
-            }
-            for inv in investors_list
-            if inv.get("name")
-        ]
-    # fallback: extract from per-round investor lists
+            })
+        return result
+
+    # Step 3: fallback — extract from per-round investor lists
     seen: dict[str, dict] = {}
     for r in funding_rounds or []:
         round_type = r.get("round_type", "")
         for inv in r.get("investors", []):
             if isinstance(inv, str):
-                name, logo = inv, None
+                name, logo, tier, category, is_lead = inv, None, None, None, False
             elif isinstance(inv, dict):
-                name, logo = inv.get("name", ""), inv.get("logo")
+                name = inv.get("name", "")
+                logo = inv.get("logo")
+                tier = inv.get("tier")
+                category = inv.get("category")
+                is_lead = bool(inv.get("is_lead"))
             else:
                 continue
             if name and name not in seen:
-                seen[name] = {"name": name, "logo": logo, "round": round_type, "portfolio_notable": []}
+                seen[name] = {
+                    "name": name,
+                    "logo": logo,
+                    "round": round_type,
+                    "stages": [],
+                    "tier": str(tier) if tier is not None else None,
+                    "category": category,
+                    "is_lead": is_lead,
+                    "portfolio_notable": [],
+                }
+            else:
+                # Enrich existing entry if we now have more data
+                if category and not seen[name].get("category"):
+                    seen[name]["category"] = category
+                if tier is not None and seen[name]["tier"] is None:
+                    seen[name]["tier"] = str(tier)
+                if is_lead:
+                    seen[name]["is_lead"] = True
     return list(seen.values())
 
 

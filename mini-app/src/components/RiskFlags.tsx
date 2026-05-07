@@ -2,6 +2,14 @@ import type { RiskFlag } from "../types";
 import { t } from "../i18n";
 import type { Lang } from "../i18n";
 
+const CATEGORY_KEY: Record<string, "flag_cat_tokenomics" | "flag_cat_team" | "flag_cat_social" | "flag_cat_investors" | "flag_cat_general"> = {
+  tokenomics: "flag_cat_tokenomics",
+  team: "flag_cat_team",
+  social: "flag_cat_social",
+  investors: "flag_cat_investors",
+  general: "flag_cat_general",
+};
+
 interface RiskFlagsProps {
   flags: RiskFlag[];
   lang: Lang;
@@ -45,7 +53,7 @@ export default function RiskFlags({ flags, lang }: RiskFlagsProps) {
           <span className="mt-0.5 shrink-0">{ICON[flag.type]}</span>
           <div>
             <span className={`font-semibold ${TEXT[flag.type]}`}>
-              {flag.category}:
+              {CATEGORY_KEY[flag.category] ? t(CATEGORY_KEY[flag.category], lang) : flag.category}:
             </span>{" "}
             <span className="text-gray-700">{flag.message}</span>
           </div>

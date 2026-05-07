@@ -24,6 +24,11 @@ const TR = {
     market_cap: "Market Cap",
     // RiskFlags
     no_risk_flags: "No risk flags detected.",
+    flag_cat_tokenomics: "Tokenomics",
+    flag_cat_team: "Team",
+    flag_cat_social: "Social",
+    flag_cat_investors: "Investors",
+    flag_cat_general: "General",
     // TeamVerification
     no_team_data: "No team data available.",
     all_members: "All members",
@@ -108,6 +113,11 @@ const TR = {
     market_cap: "Капитализация",
     // RiskFlags
     no_risk_flags: "Риск-флаги не обнаружены.",
+    flag_cat_tokenomics: "Токеномика",
+    flag_cat_team: "Команда",
+    flag_cat_social: "Соцсети",
+    flag_cat_investors: "Инвесторы",
+    flag_cat_general: "Общее",
     // TeamVerification
     no_team_data: "Данные о команде не найдены.",
     all_members: "Все участники",
