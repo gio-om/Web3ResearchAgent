@@ -157,6 +157,17 @@ async def dispatcher_node(state: dict) -> dict:
     enabled = state.get("enabled_modules", _ALL_MODULES)
     log.info("dispatcher.start", project=state.get("project_name", ""), modules=enabled)
 
+    # Resolve CryptoRank project once so all agents share the result without redundant lookups.
+    if not state.get("skip_cryptorank") and not state.get("cr_project"):
+        try:
+            from src.services.cryptorank import CryptoRankClient
+            _cr = CryptoRankClient()
+            _cr_project = await _cr.search_project(state.get("project_name", ""))
+            if _cr_project:
+                state = {**state, "cr_project": _cr_project}
+        except Exception:
+            pass
+
     # Initialise shared progress context for this run
     _progress["chat_id"] = state.get("chat_id")
     _progress["message_id"] = state.get("message_id")

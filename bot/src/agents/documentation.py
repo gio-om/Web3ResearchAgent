@@ -94,7 +94,7 @@ async def documentation_node(state: dict) -> dict:
         if not project_urls.get("website") and not _has_any_docs_url:
             await push_step("documentation", _step("search_links", lang))
             from src.agents.resolve_urls import resolve_project_urls
-            project_urls = await resolve_project_urls(project_name, project_urls)
+            project_urls = await resolve_project_urls(project_name, project_urls, state.get("cr_project"))
             log.info("documentation.resolved_urls", project=project_name, urls=project_urls)
 
         # Collect all candidate website URLs (used for both discovery and fallback)

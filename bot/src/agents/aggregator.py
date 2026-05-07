@@ -33,7 +33,7 @@ async def aggregator_node(state: dict) -> dict:
             client = CryptoRankClient()
 
             await push_step("aggregator", "Ищем проект в CryptoRank...")
-            project = await client.search_project(project_name)
+            project = state.get("cr_project") or await client.search_project(project_name)
             if project:
                 project_id = project.get("id") or project.get("slug")
                 if project_id:

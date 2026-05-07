@@ -128,7 +128,7 @@ async def team_node(state: dict) -> dict:
     if not project_urls.get("website") and not project_urls.get("twitter"):
         await push_step("team", _step("resolve_urls", lang))
         from src.agents.resolve_urls import resolve_project_urls
-        project_urls = await resolve_project_urls(project_name, project_urls)
+        project_urls = await resolve_project_urls(project_name, project_urls, state.get("cr_project"))
 
     try:
         from src.services.scraper import DocumentationScraper

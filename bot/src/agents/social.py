@@ -46,7 +46,7 @@ async def social_node(state: dict) -> dict:
     # Resolve social URLs (CryptoRank priority → CoinGecko fallback)
     await push_step("social", "Ищем ссылки на соцсети проекта...")
     from src.agents.resolve_urls import resolve_project_urls
-    project_urls = await resolve_project_urls(project_name, project_urls)
+    project_urls = await resolve_project_urls(project_name, project_urls, state.get("cr_project"))
 
     # Fetch FDV / MCap separately for coingecko_summary in the report
     coingecko_summary: dict = {}

@@ -14,10 +14,15 @@ def _clean(url: str) -> str:
     return url.split("?")[0].split("#")[0].rstrip("/")
 
 
-async def resolve_project_urls(project_name: str, project_urls: dict) -> dict:
+async def resolve_project_urls(
+    project_name: str,
+    project_urls: dict,
+    cr_project: dict | None = None,
+) -> dict:
     """
     Fetch social/website links for *project_name* and merge into *project_urls*.
     Already-set keys are NOT overwritten (caller's data takes priority).
+    Pass *cr_project* (pre-resolved CryptoRank data) to skip the search call.
     Returns the merged dict.
     """
     urls = dict(project_urls)
@@ -26,7 +31,7 @@ async def resolve_project_urls(project_name: str, project_urls: dict) -> dict:
     try:
         from src.services.cryptorank import CryptoRankClient
         cr = CryptoRankClient()
-        project = await cr.search_project(project_name)
+        project = cr_project or await cr.search_project(project_name)
         if project:
             cr_id = project.get("id") or project.get("slug")
             if cr_id:
