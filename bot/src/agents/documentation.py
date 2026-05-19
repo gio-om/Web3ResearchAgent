@@ -74,7 +74,7 @@ async def documentation_node(state: dict) -> dict:
     project_urls = state.get("project_urls", {})
     lang = state.get("lang", "ru")
     user_settings = state.get("user_settings", {}) or {}
-    max_pages = int(user_settings.get("docs_max_pages", 30))
+    max_pages = int(user_settings.get("docs_max_pages", 20))
     log.info("documentation.start", project=project_name, max_pages=max_pages)
 
     from src.agents.graph import push_step

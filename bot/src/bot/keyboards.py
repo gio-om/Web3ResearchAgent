@@ -54,7 +54,7 @@ def settings_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
 
 def docs_settings_keyboard(
     lang: str = "ru",
-    max_pages: int = 30,
+    max_pages: int = 20,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     _presets = (10, 30, 50)

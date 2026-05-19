@@ -268,7 +268,7 @@ async def msg_custom_top_posts(message: Message, state: FSMContext, lang: str = 
 async def cb_settings_docs(callback: CallbackQuery, lang: str = "ru") -> None:
     await callback.answer()
     user_settings = await _load_settings(callback.from_user.id)
-    max_pages = int(user_settings.get("docs_max_pages", 30))
+    max_pages = int(user_settings.get("docs_max_pages", 20))
     await callback.message.edit_text(
         t("docs_settings_menu", lang, max_pages=max_pages),
         reply_markup=docs_settings_keyboard(lang, max_pages),
