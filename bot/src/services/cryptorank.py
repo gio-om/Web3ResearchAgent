@@ -116,6 +116,9 @@ def _clean_url(url: str) -> str:
     return url.rstrip("/")
 
 
+_LINK_TYPE_ALIASES = {"web": "website"}
+
+
 def _extract_links(links_list: list) -> dict:
     """
     Extract ALL link URLs from the CryptoRank links array (website, twitter,
@@ -125,6 +128,7 @@ def _extract_links(links_list: list) -> dict:
     result: dict = {}
     for item in links_list or []:
         t = (item.get("type") or "").lower()
+        t = _LINK_TYPE_ALIASES.get(t, t)
         v = (item.get("value") or "").strip()
         if not v or not t or t in result:
             continue
@@ -377,38 +381,46 @@ class CryptoRankClient:
         """
         Get project metadata by CryptoRank slug.
 
-        Endpoint: GET /v0/coins/{slug}
+        Tries two endpoints concurrently and merges results:
+          1. GET /v0/coins/{slug}               → market data + links
+          2. GET /v0/app/coins/{slug}?locale=en → links, description, lifecycle (no-token projects)
         """
         cache_key = f"cr:details:{project_id}"
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
 
-        data = await _api_get(f"/v0/coins/{project_id}")
-        if not data:
+        data, app_data = await asyncio.gather(
+            _api_get(f"/v0/coins/{project_id}"),
+            _api_get(f"/v0/app/coins/{project_id}", params={"locale": "en"}),
+        )
+
+        coin = (data.get("data", {}) if isinstance(data, dict) else {}) or {}
+        app_coin = (app_data.get("data", {}) if isinstance(app_data, dict) else {}) or {}
+
+        if not coin and not app_coin:
             return {}
 
-        coin = data.get("data", {}) if isinstance(data, dict) else {}
-        if not coin:
-            return {}
+        # Merge links: /v0/coins first, /v0/app/coins fills gaps
+        links = _extract_links(app_coin.get("links", []))
+        links.update(_extract_links(coin.get("links", [])))
 
-        links = _extract_links(coin.get("links", []))
+        src = coin or app_coin
         result = {
-            "key": coin.get("key", project_id),
-            "name": coin.get("name", ""),
-            "symbol": coin.get("symbol", ""),
-            "category": coin.get("category", ""),
+            "key": src.get("key", project_id),
+            "name": src.get("name", ""),
+            "symbol": src.get("symbol", ""),
+            "category": src.get("category", ""),
             "total_supply": coin.get("totalSupply"),
             "max_supply": coin.get("maxSupply"),
             "available_supply": coin.get("availableSupply"),
             "fully_diluted_market_cap": _safe_float(coin.get("fullyDilutedMarketCap")),
             "market_cap": _safe_float(coin.get("marketCap")),
-            "rank": coin.get("rank"),
-            "has_funding_rounds": coin.get("hasFundingRounds", False),
-            "has_vesting": coin.get("hasVesting", False),
-            "listing_date": coin.get("listingDate", ""),
-            "description": coin.get("shortDescription", ""),
-            # All social links as full URLs (keys match _LINK_TYPES)
+            "rank": src.get("rank"),
+            "has_funding_rounds": src.get("hasFundingRounds", False),
+            "has_vesting": src.get("hasVesting", False),
+            "listing_date": src.get("listingDate", ""),
+            "description": src.get("shortDescription", ""),
             **links,
         }
         await cache_set(cache_key, result, ttl=3600)
@@ -441,10 +453,11 @@ class CryptoRankClient:
         """
         Get all funding rounds with investors (name + logo).
 
-        Tries three endpoints concurrently and merges results (deduplicated by round_type:date):
+        Tries four endpoints concurrently and merges results (deduplicated by round_type:date):
           1. GET /v0/app/coins/{slug}/token-sales/exclusive/limited?sortBy=Date
           2. GET /v0/funding-rounds/with-investors/by-coin-key/{slug}/exclusive
-          3. GET /v0/coins/last-by-funding-rounds/{slug}/exclusive?locale=en
+          3. GET /v0/funding-rounds/with-investors/by-coin-key/{slug}  (public, no auth)
+          4. GET /v0/coins/last-by-funding-rounds/{slug}/exclusive?locale=en
 
         Returns list of:
             {round_type, date, amount_usd, valuation_usd, token_price, investors, announcement}
@@ -455,13 +468,16 @@ class CryptoRankClient:
         if cached is not None:
             return cached
 
-        sales_data, with_inv_data, last_rounds_data = await asyncio.gather(
+        sales_data, with_inv_excl, with_inv_pub, last_rounds_data = await asyncio.gather(
             _api_get(
                 f"/v0/app/coins/{project_id}/token-sales/exclusive/limited",
                 params={"sortBy": "Date"},
             ),
             _api_get(
                 f"/v0/funding-rounds/with-investors/by-coin-key/{project_id}/exclusive",
+            ),
+            _api_get(
+                f"/v0/funding-rounds/with-investors/by-coin-key/{project_id}",
             ),
             _api_get(
                 f"/v0/coins/last-by-funding-rounds/{project_id}/exclusive",
@@ -497,7 +513,8 @@ class CryptoRankClient:
             return resp.get("rounds") or resp.get("items") or []
 
         raw_rounds.extend(_extract_raw(sales_data, "token-sales"))
-        raw_rounds.extend(_extract_raw(with_inv_data, "with-investors"))
+        raw_rounds.extend(_extract_raw(with_inv_excl, "with-investors-exclusive"))
+        raw_rounds.extend(_extract_raw(with_inv_pub, "with-investors-public"))
         raw_rounds.extend(_extract_raw(last_rounds_data, "last-by-funding-rounds"))
 
         log.info("cryptorank.funding.raw_total", slug=project_id, count=len(raw_rounds))
@@ -540,7 +557,7 @@ class CryptoRankClient:
 
         data = await _api_get(
             f"/v0/coins/{project_id}/investors-list/exclusive/limited",
-            params={"limit": 50, "skip": 0},
+            params={"limit": 10, "skip": 0},
         )
         if not data or not isinstance(data, dict):
             return []

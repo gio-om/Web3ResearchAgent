@@ -125,7 +125,7 @@ async def team_node(state: dict) -> dict:
     team_data: dict = {"members": [], "flags": []}
     errors = list(state.get("errors", []))
 
-    if not project_urls.get("website") and not project_urls.get("twitter"):
+    if not project_urls.get("linkedin") or (not project_urls.get("website") and not project_urls.get("twitter")):
         await push_step("team", _step("resolve_urls", lang))
         from src.agents.resolve_urls import resolve_project_urls
         project_urls = await resolve_project_urls(project_name, project_urls, state.get("cr_project"))
@@ -141,9 +141,14 @@ async def team_node(state: dict) -> dict:
         linkedin_company_url = project_urls.get("linkedin", "")
         members: list[dict] = []
 
+        # Use canonical name from CryptoRank (e.g. "io.net") instead of the
+        # slugified query (e.g. "io-net") so LinkedIn currentCompanies filter matches.
+        cr_project = state.get("cr_project") or {}
+        apify_company_name = (cr_project.get("name") or project_name).strip()
+
         # ── 1. Fetch profiles via Apify ───────────────────────────────
         await push_step("team", _step("apify_search", lang))
-        apify_members = await search_linkedin_team_apify(project_name, linkedin_company_url)
+        apify_members = await search_linkedin_team_apify(apify_company_name, linkedin_company_url)
         members = _merge_members(members, apify_members, source="apify", lang=lang)
         log.info("team.apify_done", project=project_name, count=len(members))
 
